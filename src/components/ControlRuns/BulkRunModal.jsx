@@ -1,5 +1,34 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import ApiService from '../../services/api';
+
+function toYmd(date) {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseYmd(ymd) {
+    // Parse as local date (avoid timezone shifting from Date.parse('YYYY-MM-DD'))
+    const [y, m, d] = String(ymd || '').split('-').map((x) => Number(x));
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+}
+
+function addDays(date, days) {
+    const d = new Date(date);
+    d.setDate(d.getDate() + days);
+    return d;
+}
+
+function dayLabelFromYmd(ymd) {
+    const d = parseYmd(ymd);
+    if (!d) return ymd;
+    const day = d.getDay();
+    if (day === 6) return `Sat ${ymd}`;
+    if (day === 0) return `Sun ${ymd}`;
+    return ymd;
+}
 
 function parseCsvLine(line) {
     const out = [];
@@ -60,9 +89,15 @@ function isTerminalStatus(status) {
     return ['completed', 'success', 'failed', 'error', 'stopped', 'killed', 'cancelled'].includes(s);
 }
 
-async function waitForRunCompletion(taskId, { maxMs = 60 * 60 * 1000, intervalMs = 2000 } = {}) {
+async function waitForRunCompletion(
+    taskId,
+    { maxMs = 60 * 60 * 1000, intervalMs = 2000, optionsShouldCancel = null } = {}
+) {
     const start = Date.now();
     while (Date.now() - start < maxMs) {
+        if (typeof optionsShouldCancel === 'function' && optionsShouldCancel()) {
+            throw new Error('Batch run cancelled');
+        }
         const statusResp = await ApiService.getControlRunStatus(taskId);
         if (isTerminalStatus(statusResp?.status)) return statusResp;
         await new Promise((r) => setTimeout(r, intervalMs));
@@ -78,11 +113,19 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
     const [fileName, setFileName] = useState('');
     const [csvText, setCsvText] = useState('');
     const [runEnv, setRunEnv] = useState('DEV');
-    const [expectedRunDate, setExpectedRunDate] = useState(new Date().toISOString().split('T')[0]);
+    const todayYmd = useMemo(() => toYmd(new Date()), []);
+    const [dateMode, setDateMode] = useState('single'); // 'single' | 'range'
+    const [expectedRunDate, setExpectedRunDate] = useState(todayYmd);
+    const [rangeStart, setRangeStart] = useState(todayYmd);
+    const [rangeEnd, setRangeEnd] = useState(todayYmd);
+    const [selectedWeekendDates, setSelectedWeekendDates] = useState(() => new Set());
     const [isRunning, setIsRunning] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0 });
     const [results, setResults] = useState([]);
     const [error, setError] = useState('');
+    const cancelRef = useRef(false);
+    const [currentTaskId, setCurrentTaskId] = useState(null);
+    const [currentControlName, setCurrentControlName] = useState('');
 
     const parsed = useMemo(() => parseCsv(csvText), [csvText]);
 
@@ -128,6 +171,9 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
         setError('');
         setResults([]);
         setProgress({ current: 0, total: 0 });
+        cancelRef.current = false;
+        setCurrentTaskId(null);
+        setCurrentControlName('');
 
         if (!file) return;
         setFileName(file.name);
@@ -136,63 +182,161 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
         setCsvText(text);
     };
 
+    const datePlan = useMemo(() => {
+        if (dateMode === 'single') {
+            const d = expectedRunDate;
+            const dateObj = parseYmd(d);
+            if (!dateObj) return { selectedDates: [], weekendCandidates: [] };
+            const day = dateObj.getDay();
+            const isWeekend = day === 0 || day === 6;
+            return {
+                selectedDates: [d],
+                weekendCandidates: isWeekend ? [d] : []
+            };
+        }
+
+        const startObj = parseYmd(rangeStart);
+        const endObj = parseYmd(rangeEnd);
+        if (!startObj || !endObj) return { selectedDates: [], weekendCandidates: [] };
+
+        const from = startObj <= endObj ? startObj : endObj;
+        const to = startObj <= endObj ? endObj : startObj;
+
+        const weekdayDates = [];
+        const weekendCandidates = [];
+
+        for (let d = new Date(from); d <= to; d = addDays(d, 1)) {
+            const ymd = toYmd(d);
+            const day = d.getDay();
+            const isWeekend = day === 0 || day === 6;
+            if (isWeekend) {
+                weekendCandidates.push(ymd);
+            } else {
+                weekdayDates.push(ymd);
+            }
+        }
+
+        const weekendIncluded = weekendCandidates.filter((d) => selectedWeekendDates.has(d));
+        return {
+            selectedDates: [...weekdayDates, ...weekendIncluded].sort(),
+            weekendCandidates
+        };
+    }, [dateMode, expectedRunDate, rangeStart, rangeEnd, selectedWeekendDates]);
+
+    const handleStopBatch = async () => {
+        cancelRef.current = true;
+
+        // Try to stop currently running backend task if we have one.
+        if (currentTaskId && !String(currentTaskId).startsWith('local-')) {
+            try {
+                await ApiService.stopControlRun(currentTaskId, false);
+                setResults((prev) => [
+                    ...prev,
+                    { name: currentControlName || 'Current run', status: 'stopped', task_id: currentTaskId, message: 'Stopped by user' }
+                ]);
+            } catch (e) {
+                setResults((prev) => [
+                    ...prev,
+                    { name: currentControlName || 'Current run', status: 'stop_failed', task_id: currentTaskId, message: e?.message || 'Failed to stop current run' }
+                ]);
+            }
+        }
+    };
+
     const handleStartBulk = async () => {
         setError('');
         setResults([]);
+        cancelRef.current = false;
+        setCurrentTaskId(null);
+        setCurrentControlName('');
 
         if (!validation.ok) {
             setError(validation.message || 'CSV validation failed');
             return;
         }
 
+        if (datePlan.selectedDates.length === 0) {
+            setError('Please select a valid run date (or date range).');
+            return;
+        }
+
         setIsRunning(true);
-        setProgress({ current: 0, total: validation.validNames.length });
+        setProgress({ current: 0, total: validation.validNames.length * datePlan.selectedDates.length });
 
         try {
-            for (let i = 0; i < validation.validNames.length; i++) {
-                const name = validation.validNames[i];
-                setProgress({ current: i + 1, total: validation.validNames.length });
+            let completedSteps = 0;
+            for (const runDate of datePlan.selectedDates) {
+                if (cancelRef.current) {
+                    setResults((prev) => [...prev, { name: 'Batch', status: 'cancelled', message: 'Cancelled by user' }]);
+                    break;
+                }
 
-                const control = controls.find((c) => c.name === name);
-                const params = {
-                    control_id: control?.control_id || 'generic_controller',
-                    task_name: name,
-                    run_env: runEnv,
-                    expected_run_date: expectedRunDate
-                };
+                for (let i = 0; i < validation.validNames.length; i++) {
+                    if (cancelRef.current) {
+                        setResults((prev) => [...prev, { name: 'Batch', status: 'cancelled', message: 'Cancelled by user' }]);
+                        break;
+                    }
 
-                const startResp = await onStartRun(params);
-                const taskId = startResp?.task_id;
+                    const name = validation.validNames[i];
+                    completedSteps += 1;
+                    setProgress({ current: completedSteps, total: validation.validNames.length * datePlan.selectedDates.length });
+                    setCurrentControlName(name);
 
-                if (!taskId) {
+                    const control = controls.find((c) => c.name === name);
+                    const params = {
+                        control_id: control?.control_id || 'generic_controller',
+                        task_name: name,
+                        run_env: runEnv,
+                        expected_run_date: runDate
+                    };
+
+                    const startResp = await onStartRun(params);
+                    const taskId = startResp?.task_id;
+                    setCurrentTaskId(taskId || null);
+
+                    if (!taskId) {
+                        setResults((prev) => [
+                            ...prev,
+                            { name, run_date: runDate, status: 'failed', message: 'No task_id returned' }
+                        ]);
+                        continue;
+                    }
+
+                    if (startResp?.simulated) {
+                        await new Promise((r) => setTimeout(r, 5500));
+                        if (cancelRef.current) {
+                            setResults((prev) => [...prev, { name, run_date: runDate, status: 'cancelled', task_id: taskId, simulated: true }]);
+                            break;
+                        }
+                        setResults((prev) => [...prev, { name, run_date: runDate, status: 'completed', task_id: taskId, simulated: true }]);
+                        continue;
+                    }
+
+                    const finalStatus = await waitForRunCompletion(taskId, {
+                        optionsShouldCancel: () => cancelRef.current
+                    });
                     setResults((prev) => [
                         ...prev,
-                        { name, status: 'failed', message: 'No task_id returned' }
+                        {
+                            name,
+                            run_date: runDate,
+                            status: finalStatus?.status || 'unknown',
+                            task_id: taskId
+                        }
                     ]);
-                    continue;
                 }
-
-                if (startResp?.simulated) {
-                    // Simulated runs complete in ~5 seconds in our local fallback.
-                    await new Promise((r) => setTimeout(r, 5500));
-                    setResults((prev) => [...prev, { name, status: 'completed', task_id: taskId, simulated: true }]);
-                    continue;
-                }
-
-                const finalStatus = await waitForRunCompletion(taskId);
-                setResults((prev) => [
-                    ...prev,
-                    {
-                        name,
-                        status: finalStatus?.status || 'unknown',
-                        task_id: taskId
-                    }
-                ]);
             }
         } catch (e) {
-            setError(e?.message || 'Bulk run failed');
+            // If cancelled, don't show as a hard error
+            if (String(e?.message || '').toLowerCase().includes('cancel')) {
+                setResults((prev) => [...prev, { name: 'Batch', status: 'cancelled', message: 'Cancelled by user' }]);
+            } else {
+                setError(e?.message || 'Batch run failed');
+            }
         } finally {
             setIsRunning(false);
+            setCurrentTaskId(null);
+            setCurrentControlName('');
         }
     };
 
@@ -281,18 +425,127 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
                                 </button>
                             ))}
                         </div>
-                        <input
-                            type="date"
-                            value={expectedRunDate}
-                            disabled={isRunning}
-                            onChange={(e) => setExpectedRunDate(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '10px',
-                                border: '1px solid #ddd',
-                                borderRadius: '6px'
-                            }}
-                        />
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                            {[
+                                { id: 'single', label: 'Single date' },
+                                { id: 'range', label: 'Date range' }
+                            ].map((m) => (
+                                <button
+                                    key={m.id}
+                                    type="button"
+                                    disabled={isRunning}
+                                    onClick={() => setDateMode(m.id)}
+                                    style={{
+                                        flex: 1,
+                                        padding: '8px 10px',
+                                        backgroundColor: dateMode === m.id ? '#db0011' : 'white',
+                                        color: dateMode === m.id ? 'white' : '#666',
+                                        border: dateMode === m.id ? '2px solid #db0011' : '1px solid #ddd',
+                                        borderRadius: '6px',
+                                        cursor: isRunning ? 'not-allowed' : 'pointer',
+                                        fontSize: '13px',
+                                        fontWeight: dateMode === m.id ? 700 : 500
+                                    }}
+                                >
+                                    {m.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {dateMode === 'single' ? (
+                            <input
+                                type="date"
+                                value={expectedRunDate}
+                                disabled={isRunning}
+                                onChange={(e) => setExpectedRunDate(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '6px'
+                                }}
+                            />
+                        ) : (
+                            <>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                    <div>
+                                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>Start date</div>
+                                        <input
+                                            type="date"
+                                            value={rangeStart}
+                                            disabled={isRunning}
+                                            onChange={(e) => {
+                                                setRangeStart(e.target.value);
+                                                setSelectedWeekendDates(new Set());
+                                            }}
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px',
+                                                border: '1px solid #ddd',
+                                                borderRadius: '6px'
+                                            }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>End date</div>
+                                        <input
+                                            type="date"
+                                            value={rangeEnd}
+                                            disabled={isRunning}
+                                            onChange={(e) => {
+                                                setRangeEnd(e.target.value);
+                                                setSelectedWeekendDates(new Set());
+                                            }}
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px',
+                                                border: '1px solid #ddd',
+                                                borderRadius: '6px'
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
+                                    Runs default to <strong>Mon–Fri</strong>. Weekend dates (Sat/Sun) are skipped unless you explicitly select them below.
+                                </div>
+
+                                {datePlan.weekendCandidates.length > 0 && (
+                                    <div style={{
+                                        marginTop: '10px',
+                                        padding: '10px',
+                                        border: '1px solid #eee',
+                                        borderRadius: '6px',
+                                        maxHeight: '120px',
+                                        overflow: 'auto'
+                                    }}>
+                                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#333', marginBottom: '8px' }}>
+                                            Weekend dates (Sat/Sun only)
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                                            {datePlan.weekendCandidates.map((d) => (
+                                                <label key={d} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#333' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        disabled={isRunning}
+                                                        checked={selectedWeekendDates.has(d)}
+                                                        onChange={(e) => {
+                                                            setSelectedWeekendDates((prev) => {
+                                                                const next = new Set(prev);
+                                                                if (e.target.checked) next.add(d);
+                                                                else next.delete(d);
+                                                                return next;
+                                                            });
+                                                        }}
+                                                    />
+                                                    {dayLabelFromYmd(d)}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -336,6 +589,24 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
                     <div style={{ fontSize: '12px', color: '#666' }}>
                         {isRunning ? `Running ${progress.current} / ${progress.total}…` : ''}
                     </div>
+                    {isRunning && (
+                        <button
+                            type="button"
+                            onClick={handleStopBatch}
+                            style={{
+                                padding: '10px 16px',
+                                backgroundColor: '#666',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                fontWeight: 700
+                            }}
+                        >
+                            Stop Batch
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={handleStartBulk}
@@ -368,7 +639,7 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
                         }}>
                             {results.map((r) => (
                                 <div
-                                    key={`${r.task_id || ''}-${r.name}-${r.status}`}
+                                    key={`${r.task_id || ''}-${r.name}-${r.run_date || ''}-${r.status}`}
                                     style={{
                                         padding: '10px 12px',
                                         borderBottom: '1px solid #f2f2f2',
@@ -380,7 +651,7 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
                                 >
                                     <div style={{ minWidth: 0 }}>
                                         <div style={{ fontSize: '13px', fontWeight: 600, color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {r.name}
+                                            {r.name}{r.run_date ? ` • ${r.run_date}` : ''}
                                         </div>
                                         <div style={{ fontSize: '11px', color: '#666' }}>
                                             {r.task_id ? `Task: ${r.task_id}` : r.message || ''}
