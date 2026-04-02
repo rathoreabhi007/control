@@ -1,0 +1,35 @@
+{
+  "date": "20260309",
+  "file_type": "output",
+  "generated_at": "2026-03-09T11:30:00",
+  "files": [
+    {
+      "file_id": "emir_fx_completeness_output",
+      "status": "received",
+      "arrival_time": "2026-03-09T10:15:42",
+      "file_size_bytes": 52428800,
+      "note": null
+    },
+    {
+      "file_id": "emir_rates_completeness_output",
+      "status": "received",
+      "arrival_time": "2026-03-09T10:22:18",
+      "file_size_bytes": 43876543,
+      "note": null
+    },
+    {
+      "file_id": "cftc_fx_completeness_output",
+      "status": "not_received",
+      "arrival_time": null,
+      "file_size_bytes": null,
+      "note": "Waiting for input file - CFTC FX input not received"
+    },
+    {
+      "file_id": "mifid_eq_completeness_output",
+      "status": "received",
+      "arrival_time": "2026-03-09T09:44:07",
+      "file_size_bytes": 67108864,
+      "note": null
+    }
+  ]
+}

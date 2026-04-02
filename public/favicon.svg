@@ -1,0 +1,20 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <!-- Red-500 circular background -->
+  <circle cx="16" cy="16" r="16" fill="#ef4444"/>
+  
+  <!-- White nodecubic-style icon (larger and more visible) -->
+  <g transform="translate(6, 6)" fill="white">
+    <!-- Main cube shape - larger -->
+    <rect x="1" y="1" width="18" height="18" rx="3" fill="white" stroke="none"/>
+    
+    <!-- Inner geometric pattern - larger -->
+    <rect x="4" y="4" width="12" height="12" fill="#ef4444"/>
+    <rect x="7" y="7" width="6" height="6" fill="white"/>
+    
+    <!-- Node connection points - larger and more visible -->
+    <circle cx="1" cy="10" r="2" fill="white"/>
+    <circle cx="19" cy="10" r="2" fill="white"/>
+    <circle cx="10" cy="1" r="2" fill="white"/>
+    <circle cx="10" cy="19" r="2" fill="white"/>
+  </g>
+</svg> 

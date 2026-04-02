@@ -1,0 +1,49 @@
+{
+  "control_tasks": [
+    {
+      "control_id": "generic_controller",
+      "name": "Data Extraction Process",
+      "description": "Extract data from source systems",
+      "enabled": true,
+      "priority": 1,
+      "estimated_duration_minutes": 30,
+      "frequency": "Daily"
+    },
+    {
+      "control_id": "generic_controller", 
+      "name": "Data Transformation Process",
+      "description": "Transform extracted data",
+      "enabled": true,
+      "priority": 2,
+      "estimated_duration_minutes": 45,
+      "frequency": "Daily"
+    },
+    {
+      "control_id": "generic_controller",
+      "name": "Data Loading Process", 
+      "description": "Load transformed data to target",
+      "enabled": true,
+      "priority": 3,
+      "estimated_duration_minutes": 20,
+      "frequency": "Daily"
+    },
+    {
+      "control_id": "generic_controller",
+      "name": "Data Validation Process",
+      "description": "Validate loaded data",
+      "enabled": true,
+      "priority": 4,
+      "estimated_duration_minutes": 15,
+      "frequency": "Daily"
+    },
+    {
+      "control_id": "generic_controller",
+      "name": "Report Generation Process",
+      "description": "Generate daily reports",
+      "enabled": true,
+      "priority": 5,
+      "estimated_duration_minutes": 25,
+      "frequency": "Daily"
+    }
+  ]
+}

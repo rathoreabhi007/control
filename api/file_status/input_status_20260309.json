@@ -1,0 +1,49 @@
+{
+  "date": "20260309",
+  "file_type": "input",
+  "generated_at": "2026-03-09T08:45:00",
+  "files": [
+    {
+      "file_id": "emir_fx_trades_raw",
+      "status": "received",
+      "arrival_time": "2026-03-09T07:23:14",
+      "file_size_bytes": 104857600,
+      "note": null
+    },
+    {
+      "file_id": "emir_rates_trades_raw",
+      "status": "received",
+      "arrival_time": "2026-03-09T07:45:02",
+      "file_size_bytes": 87654321,
+      "note": null
+    },
+    {
+      "file_id": "cftc_fx_trades_raw",
+      "status": "not_received",
+      "arrival_time": null,
+      "file_size_bytes": null,
+      "note": "Expected by 09:00 - still pending"
+    },
+    {
+      "file_id": "cftc_rates_trades_raw",
+      "status": "received",
+      "arrival_time": "2026-03-09T08:12:55",
+      "file_size_bytes": 65432100,
+      "note": null
+    },
+    {
+      "file_id": "mifid_eq_trades_raw",
+      "status": "received",
+      "arrival_time": "2026-03-09T06:58:33",
+      "file_size_bytes": 134217728,
+      "note": null
+    },
+    {
+      "file_id": "emir_fx_ref_data",
+      "status": "not_received",
+      "arrival_time": null,
+      "file_size_bytes": null,
+      "note": null
+    }
+  ]
+}
