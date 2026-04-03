@@ -89,6 +89,11 @@ function isTerminalStatus(status) {
     return ['completed', 'success', 'failed', 'error', 'stopped', 'killed', 'cancelled'].includes(s);
 }
 
+function isRunFailureStatus(status) {
+    const s = String(status || '').toLowerCase();
+    return s === 'failed' || s === 'error';
+}
+
 async function waitForRunCompletion(
     taskId,
     { maxMs = 60 * 60 * 1000, intervalMs = 2000, optionsShouldCancel = null } = {}
@@ -265,6 +270,7 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
 
         try {
             let completedSteps = 0;
+            const controlsFailedEarlier = new Set();
             for (const runDate of datePlan.selectedDates) {
                 if (cancelRef.current) {
                     setResults((prev) => [...prev, { name: 'Batch', status: 'cancelled', message: 'Cancelled by user' }]);
@@ -278,6 +284,23 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
                     }
 
                     const name = validation.validNames[i];
+
+                    if (controlsFailedEarlier.has(name)) {
+                        completedSteps += 1;
+                        setProgress({ current: completedSteps, total: validation.validNames.length * datePlan.selectedDates.length });
+                        setCurrentControlName(name);
+                        setResults((prev) => [
+                            ...prev,
+                            {
+                                name,
+                                run_date: runDate,
+                                status: 'skipped',
+                                message: 'Skipped: this control failed on an earlier date in this batch'
+                            }
+                        ]);
+                        continue;
+                    }
+
                     completedSteps += 1;
                     setProgress({ current: completedSteps, total: validation.validNames.length * datePlan.selectedDates.length });
                     setCurrentControlName(name);
@@ -295,6 +318,7 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
                     setCurrentTaskId(taskId || null);
 
                     if (!taskId) {
+                        controlsFailedEarlier.add(name);
                         setResults((prev) => [
                             ...prev,
                             { name, run_date: runDate, status: 'failed', message: 'No task_id returned' }
@@ -315,12 +339,16 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
                     const finalStatus = await waitForRunCompletion(taskId, {
                         optionsShouldCancel: () => cancelRef.current
                     });
+                    const terminal = finalStatus?.status || 'unknown';
+                    if (isRunFailureStatus(terminal)) {
+                        controlsFailedEarlier.add(name);
+                    }
                     setResults((prev) => [
                         ...prev,
                         {
                             name,
                             run_date: runDate,
-                            status: finalStatus?.status || 'unknown',
+                            status: terminal,
                             task_id: taskId
                         }
                     ]);
@@ -660,7 +688,12 @@ const BulkRunModal = ({ controls, onStartRun, onClose }) => {
                                     <div style={{
                                         fontSize: '12px',
                                         fontWeight: 700,
-                                        color: String(r.status).toLowerCase() === 'failed' || String(r.status).toLowerCase() === 'error' ? '#db0011' : '#0f766e'
+                                        color: (() => {
+                                            const s = String(r.status).toLowerCase();
+                                            if (s === 'failed' || s === 'error') return '#db0011';
+                                            if (s === 'skipped') return '#92400e';
+                                            return '#0f766e';
+                                        })()
                                     }}>
                                         {r.status}
                                     </div>
