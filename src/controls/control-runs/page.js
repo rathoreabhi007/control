@@ -792,6 +792,9 @@ const ControlRunsPage = () => {
                         }}>
                             Controls ({filteredControls.length})
                         </h2>
+                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+                            Filtered: <strong>{filteredControls.length}</strong> / Original: <strong>{controls.length}</strong>
+                        </div>
                         {filteredControls.length === 0 ? (
                             <div style={{
                                 padding: '40px',
@@ -801,15 +804,35 @@ const ControlRunsPage = () => {
                                 No controls found matching "{searchTerm}"
                             </div>
                         ) : (
-                            filteredControls.map(control => (
-                                <ControlCard
-                                    key={control.control_id + control.name}
-                                    control={control}
-                                    onRunClick={handleRunClick}
-                                    onViewLogs={handleViewLogs}
-                                    allRuns={allRuns}
-                                />
-                            ))
+                            <>
+                                <div style={{ marginBottom: '12px' }}>
+                                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#333', marginBottom: '6px' }}>
+                                        Debug preview (first 10)
+                                    </div>
+                                    {filteredControls.slice(0, 10).map((c) => (
+                                        <div
+                                            key={`${c.control_id}:${c.name}`}
+                                            style={{
+                                                fontSize: '12px',
+                                                color: '#333',
+                                                padding: '4px 0',
+                                                borderBottom: '1px dashed #f0f0f0'
+                                            }}
+                                        >
+                                            {c.name}
+                                        </div>
+                                    ))}
+                                </div>
+                                {filteredControls.map(control => (
+                                    <ControlCard
+                                        key={control.control_id + control.name}
+                                        control={control}
+                                        onRunClick={handleRunClick}
+                                        onViewLogs={handleViewLogs}
+                                        allRuns={allRuns}
+                                    />
+                                ))}
+                            </>
                         )}
                     </div>
                 </div>
