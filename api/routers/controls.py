@@ -216,6 +216,8 @@ async def get_control_run_logs(
     reg_type: Optional[str] = None,
     control_type: Optional[str] = None,
     asset_type: Optional[str] = None,
+    # Backward compatibility: subcategory_type was renamed to control_owner_team
+    control_owner_team: Optional[str] = None,
     subcategory_type: Optional[str] = None,
     frequency: Optional[str] = None,
     status: Optional[str] = None,
@@ -272,7 +274,12 @@ async def get_control_run_logs(
                 reg_type_val = reg_type if reg_type else (parts[0] if len(parts) > 0 else "Unknown")
                 control_type_val = control_type if control_type else (parts[1] if len(parts) > 1 else "Unknown")
                 asset_type_val = asset_type if asset_type else (parts[2] if len(parts) > 2 else "Unknown")
-                subcategory_type_val = subcategory_type if subcategory_type else (parts[3] if len(parts) > 3 else "Unknown")
+                # Prefer control_owner_team if provided; otherwise keep legacy subcategory_type; otherwise parse from name
+                control_owner_team_val = (
+                    control_owner_team
+                    if control_owner_team
+                    else (subcategory_type if subcategory_type else (parts[3] if len(parts) > 3 else "Unknown"))
+                )
                 
                 # Get task state for full details
                 task_state = control_runner.task_persistence.get_task_state(task.get("task_id"))
@@ -305,12 +312,17 @@ async def get_control_run_logs(
                     "reg_type": reg_type_val,
                     "control_type": control_type_val,
                     "asset_type": asset_type_val,
-                    "subcategory_type": subcategory_type_val,
+                    # New field name (preferred)
+                    "control_owner_team": control_owner_team_val,
+                    # Legacy field name (kept so older UI doesn't break)
+                    "subcategory_type": control_owner_team_val,
                     "frequency": frequency_val,
                     "status": status_val,
                     "failed_reason": task_state.get("error") if status_val == "failed" else None,
                     "control_name": control_name,
                     "run_env": task_state.get("run_env"),
+                    # New: optional run mode (if present in task state)
+                    "run_mode": task_state.get("run_mode"),
                     "created_at": created_at,
                     "updated_at": task_state.get("updated_at")
                 }
@@ -489,7 +501,9 @@ async def get_control_run_logs_hierarchy():
         reg_types = set()
         control_types = set()
         asset_types = set()
-        subcategory_types = set()
+        subcategory_types = set()  # legacy
+        control_owner_teams = set()  # preferred
+        run_modes = set()
         frequencies = set()
         statuses = set()
         
@@ -509,8 +523,14 @@ async def get_control_run_logs_hierarchy():
                         control_types.add(log.get("control_type"))
                     if log.get("asset_type"):
                         asset_types.add(log.get("asset_type"))
+                    # Support both keys in stored data
+                    if log.get("control_owner_team"):
+                        control_owner_teams.add(log.get("control_owner_team"))
                     if log.get("subcategory_type"):
                         subcategory_types.add(log.get("subcategory_type"))
+                        control_owner_teams.add(log.get("subcategory_type"))
+                    if log.get("run_mode"):
+                        run_modes.add(log.get("run_mode"))
                     if log.get("frequency"):
                         frequencies.add(log.get("frequency"))
                     if log.get("status"):
@@ -541,6 +561,12 @@ async def get_control_run_logs_hierarchy():
                     asset_types.add(parts[2])
                 if len(parts) > 3:
                     subcategory_types.add(parts[3])
+                    control_owner_teams.add(parts[3])
+                
+                # Optional run mode (if stored)
+                rm = task_state.get("run_mode")
+                if rm:
+                    run_modes.add(rm)
                 
                 # Frequency
                 freq = "Daily" if "DAILY" in control_name.upper() else "Monthly"
@@ -557,7 +583,11 @@ async def get_control_run_logs_hierarchy():
             "reg_types": sorted(list(reg_types)),
             "control_types": sorted(list(control_types)),
             "asset_types": sorted(list(asset_types)),
+            # Preferred key
+            "control_owner_teams": sorted(list(control_owner_teams)),
+            # Legacy key
             "subcategory_types": sorted(list(subcategory_types)),
+            "run_modes": sorted(list(run_modes)),
             "frequencies": sorted(list(frequencies)),
             "statuses": sorted(list(statuses)),
             "retrieved_at": datetime.now().isoformat()

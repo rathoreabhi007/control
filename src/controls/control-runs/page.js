@@ -71,6 +71,11 @@ const ControlRunsPage = () => {
     const [allRuns, setAllRuns] = useState([]);
     const [filterStatus, setFilterStatus] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
+    const [controlFilters, setControlFilters] = useState({
+        reg_type: '',
+        control_type: '',
+        asset_type: ''
+    });
     const [historyCache, setHistoryCache] = useState(new Map());
 
     useEffect(() => {
@@ -433,19 +438,96 @@ const ControlRunsPage = () => {
         }
     }, [searchTerm]);
 
+    const handleControlFilterChange = (key, value) => {
+        setControlFilters((prev) => {
+            const next = { ...prev, [key]: value };
+            if (key === 'reg_type') {
+                next.control_type = '';
+                next.asset_type = '';
+            } else if (key === 'control_type') {
+                next.asset_type = '';
+            }
+            return next;
+        });
+    };
+
+    const controlFilterHierarchy = useMemo(() => {
+        const regTypes = new Set();
+        const controlTypes = new Set();
+        const assetTypes = new Set();
+
+        (controls || []).forEach((c) => {
+            const rt = (c?.reg_type ?? '').toString().trim();
+            const ct = (c?.control_type ?? '').toString().trim();
+            const at = (c?.asset_type ?? '').toString().trim();
+            if (rt) regTypes.add(rt);
+            if (ct) controlTypes.add(ct);
+            if (at) assetTypes.add(at);
+        });
+
+        const sortAlpha = (a, b) => String(a).localeCompare(String(b));
+        return {
+            reg_types: Array.from(regTypes).sort(sortAlpha),
+            control_types: Array.from(controlTypes).sort(sortAlpha),
+            asset_types: Array.from(assetTypes).sort(sortAlpha)
+        };
+    }, [controls]);
+
+    const filteredControlTypes = useMemo(() => {
+        if (!controlFilters.reg_type) return controlFilterHierarchy.control_types;
+        const set = new Set();
+        (controls || []).forEach((c) => {
+            const rt = (c?.reg_type ?? '').toString().trim();
+            if (rt !== controlFilters.reg_type) return;
+            const ct = (c?.control_type ?? '').toString().trim();
+            if (ct) set.add(ct);
+        });
+        return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
+    }, [controlFilters.reg_type, controlFilterHierarchy.control_types, controls]);
+
+    const filteredAssetTypes = useMemo(() => {
+        if (!controlFilters.reg_type && !controlFilters.control_type) return controlFilterHierarchy.asset_types;
+        const set = new Set();
+        (controls || []).forEach((c) => {
+            const rt = (c?.reg_type ?? '').toString().trim();
+            const ct = (c?.control_type ?? '').toString().trim();
+            if (controlFilters.reg_type && rt !== controlFilters.reg_type) return;
+            if (controlFilters.control_type && ct !== controlFilters.control_type) return;
+            const at = (c?.asset_type ?? '').toString().trim();
+            if (at) set.add(at);
+        });
+        return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
+    }, [controlFilters.reg_type, controlFilters.control_type, controlFilterHierarchy.asset_types, controls]);
+
+    const controlsAfterDropdownFilters = useMemo(() => {
+        const hasAny = !!(controlFilters.reg_type || controlFilters.control_type || controlFilters.asset_type);
+        if (!hasAny) return controls;
+        return (controls || []).filter((c) => {
+            const rt = (c?.reg_type ?? '').toString().trim();
+            const ct = (c?.control_type ?? '').toString().trim();
+            const at = (c?.asset_type ?? '').toString().trim();
+            if (controlFilters.reg_type && rt !== controlFilters.reg_type) return false;
+            if (controlFilters.control_type && ct !== controlFilters.control_type) return false;
+            if (controlFilters.asset_type && at !== controlFilters.asset_type) return false;
+            return true;
+        });
+    }, [controlFilters.asset_type, controlFilters.control_type, controlFilters.reg_type, controls]);
+
     // Filter controls based on regex search (always-on)
     const filteredControls = useMemo(() => {
         const term = (searchTerm || '').trim();
-        if (!term) return controls;
+        if (!term) return controlsAfterDropdownFilters;
         try {
             const regex = new RegExp(term, 'i');
-            return controls.filter(control =>
+            return controlsAfterDropdownFilters.filter(control =>
                 regex.test(control.name || '') || regex.test(control.description || '')
             );
         } catch {
             return [];
         }
-    }, [controls, searchTerm]);
+    }, [controlsAfterDropdownFilters, searchTerm]);
+    console.log(filteredControls.length, 'filtered');
+    console.log(controls.length, 'controls');
 
     const getStatusCounts = () => {
         const counts = {
@@ -734,6 +816,114 @@ const ControlRunsPage = () => {
                             Batch Control Run
                         </button>
                     </div>
+                    {/* Dropdown Filters (same idea as Control Status) */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                        gap: '10px',
+                        marginTop: '12px'
+                    }}>
+                        <div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#333', marginBottom: '6px' }}>
+                                Reg Type
+                            </div>
+                            <select
+                                value={controlFilters.reg_type}
+                                onChange={(e) => handleControlFilterChange('reg_type', e.target.value)}
+                                disabled={controlFilterHierarchy.reg_types.length === 0}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    backgroundColor: 'white',
+                                    color: '#333',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '4px',
+                                    fontSize: '13px',
+                                    outline: 'none',
+                                    opacity: controlFilterHierarchy.reg_types.length === 0 ? 0.6 : 1
+                                }}
+                            >
+                                <option value="">All</option>
+                                {controlFilterHierarchy.reg_types.map((t) => (
+                                    <option key={t} value={t}>{t}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#333', marginBottom: '6px' }}>
+                                Control Type
+                            </div>
+                            <select
+                                value={controlFilters.control_type}
+                                onChange={(e) => handleControlFilterChange('control_type', e.target.value)}
+                                disabled={filteredControlTypes.length === 0}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    backgroundColor: 'white',
+                                    color: '#333',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '4px',
+                                    fontSize: '13px',
+                                    outline: 'none',
+                                    opacity: filteredControlTypes.length === 0 ? 0.6 : 1
+                                }}
+                            >
+                                <option value="">All</option>
+                                {filteredControlTypes.map((t) => (
+                                    <option key={t} value={t}>{t}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#333', marginBottom: '6px' }}>
+                                Asset Type
+                            </div>
+                            <select
+                                value={controlFilters.asset_type}
+                                onChange={(e) => handleControlFilterChange('asset_type', e.target.value)}
+                                disabled={filteredAssetTypes.length === 0}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    backgroundColor: 'white',
+                                    color: '#333',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '4px',
+                                    fontSize: '13px',
+                                    outline: 'none',
+                                    opacity: filteredAssetTypes.length === 0 ? 0.6 : 1
+                                }}
+                            >
+                                <option value="">All</option>
+                                {filteredAssetTypes.map((t) => (
+                                    <option key={t} value={t}>{t}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    {(controlFilters.reg_type || controlFilters.control_type || controlFilters.asset_type) && (
+                        <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                                type="button"
+                                onClick={() => setControlFilters({ reg_type: '', control_type: '', asset_type: '' })}
+                                style={{
+                                    padding: '6px 10px',
+                                    backgroundColor: 'white',
+                                    color: '#db0011',
+                                    border: '1px solid #db0011',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    fontWeight: 700
+                                }}
+                            >
+                                Clear filters
+                            </button>
+                        </div>
+                    )}
                     <input
                         type="text"
                         placeholder="Search controls with regex..."
@@ -792,9 +982,6 @@ const ControlRunsPage = () => {
                         }}>
                             Controls ({filteredControls.length})
                         </h2>
-                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-                            Filtered: <strong>{filteredControls.length}</strong> / Original: <strong>{controls.length}</strong>
-                        </div>
                         {filteredControls.length === 0 ? (
                             <div style={{
                                 padding: '40px',
@@ -804,35 +991,15 @@ const ControlRunsPage = () => {
                                 No controls found matching "{searchTerm}"
                             </div>
                         ) : (
-                            <>
-                                <div style={{ marginBottom: '12px' }}>
-                                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#333', marginBottom: '6px' }}>
-                                        Debug preview (first 10)
-                                    </div>
-                                    {filteredControls.slice(0, 10).map((c) => (
-                                        <div
-                                            key={`${c.control_id}:${c.name}`}
-                                            style={{
-                                                fontSize: '12px',
-                                                color: '#333',
-                                                padding: '4px 0',
-                                                borderBottom: '1px dashed #f0f0f0'
-                                            }}
-                                        >
-                                            {c.name}
-                                        </div>
-                                    ))}
-                                </div>
-                                {filteredControls.map(control => (
-                                    <ControlCard
-                                        key={control.control_id + control.name}
-                                        control={control}
-                                        onRunClick={handleRunClick}
-                                        onViewLogs={handleViewLogs}
-                                        allRuns={allRuns}
-                                    />
-                                ))}
-                            </>
+                            filteredControls.map(control => (
+                                <ControlCard
+                                    key={control.control_id + control.name}
+                                    control={control}
+                                    onRunClick={handleRunClick}
+                                    onViewLogs={handleViewLogs}
+                                    allRuns={allRuns}
+                                />
+                            ))
                         )}
                     </div>
                 </div>

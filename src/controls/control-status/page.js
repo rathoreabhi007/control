@@ -21,7 +21,9 @@ export default function ControlStatusDashboard({ instanceId }) {
         reg_types: [],
         control_types: [],
         asset_types: [],
-        subcategory_types: [],
+        control_owner_teams: [],
+        subcategory_types: [], // legacy (backend may still return)
+        run_modes: [],
         frequencies: [],
         statuses: []
     });
@@ -39,9 +41,10 @@ export default function ControlStatusDashboard({ instanceId }) {
         reg_type: '',
         control_type: '',
         asset_type: '',
-        subcategory_type: '',
+        control_owner_team: '',
         frequency: '',
-        status: ''
+        status: '',
+        run_mode: ''
     });
 
     // Pagination
@@ -51,7 +54,7 @@ export default function ControlStatusDashboard({ instanceId }) {
     const [sortDirection, setSortDirection] = useState('desc');
 
     // Chart category selection - now shows status counts grouped by category
-    const [chartCategory, setChartCategory] = useState('reg_type'); // reg_type, control_type, asset_type, subcategory_type
+    const [chartCategory, setChartCategory] = useState('reg_type'); // reg_type, control_type, asset_type, control_owner_team
 
     // Column visibility - default to only name and status
     const [visibleColumns, setVisibleColumns] = useState({
@@ -62,7 +65,8 @@ export default function ControlStatusDashboard({ instanceId }) {
         reg_type: false,
         control_type: false,
         asset_type: false,
-        subcategory_type: false,
+        control_owner_team: false,
+        run_mode: true,
         frequency: false,
         start_time: true,
         end_time: true,
@@ -80,7 +84,8 @@ export default function ControlStatusDashboard({ instanceId }) {
         reg_type: '',
         control_type: '',
         asset_type: '',
-        subcategory_type: '',
+        control_owner_team: '',
+        run_mode: '',
         frequency: '',
         status: '',
         start_time: '',
@@ -166,19 +171,19 @@ export default function ControlStatusDashboard({ instanceId }) {
     const handleFilterChange = (key, value) => {
         setFilters(prev => {
             const newFilters = { ...prev, [key]: value };
-            
+
             // Clear child filters when parent filter changes
             if (key === 'reg_type') {
                 newFilters.control_type = '';
                 newFilters.asset_type = '';
-                newFilters.subcategory_type = '';
+                newFilters.control_owner_team = '';
             } else if (key === 'control_type') {
                 newFilters.asset_type = '';
-                newFilters.subcategory_type = '';
+                newFilters.control_owner_team = '';
             } else if (key === 'asset_type') {
-                newFilters.subcategory_type = '';
+                newFilters.control_owner_team = '';
             }
-            
+
             return newFilters;
         });
         setCurrentPage(1); // Reset to first page on filter change
@@ -191,9 +196,10 @@ export default function ControlStatusDashboard({ instanceId }) {
             reg_type: '',
             control_type: '',
             asset_type: '',
-            subcategory_type: '',
+            control_owner_team: '',
             frequency: '',
-            status: ''
+            status: '',
+            run_mode: ''
         });
         setCurrentPage(1);
     };
@@ -212,7 +218,7 @@ export default function ControlStatusDashboard({ instanceId }) {
     const filteredAssetTypes = useMemo(() => {
         if (!filters.reg_type && !filters.control_type) return hierarchy.asset_types;
         return runLogs
-            .filter(log => 
+            .filter(log =>
                 (!filters.reg_type || log.reg_type === filters.reg_type) &&
                 (!filters.control_type || log.control_type === filters.control_type)
             )
@@ -221,21 +227,23 @@ export default function ControlStatusDashboard({ instanceId }) {
             .sort();
     }, [filters.reg_type, filters.control_type, runLogs, hierarchy.asset_types]);
 
-    // Filter subcategory types based on selected hierarchy
-    const filteredSubcategoryTypes = useMemo(() => {
+    // Filter control owner teams based on selected hierarchy
+    const filteredControlOwnerTeams = useMemo(() => {
         if (!filters.reg_type && !filters.control_type && !filters.asset_type) {
-            return hierarchy.subcategory_types;
+            return hierarchy.control_owner_teams?.length
+                ? hierarchy.control_owner_teams
+                : (hierarchy.subcategory_types || []);
         }
         return runLogs
-            .filter(log => 
+            .filter(log =>
                 (!filters.reg_type || log.reg_type === filters.reg_type) &&
                 (!filters.control_type || log.control_type === filters.control_type) &&
                 (!filters.asset_type || log.asset_type === filters.asset_type)
             )
-            .map(log => log.subcategory_type)
+            .map(log => log.control_owner_team || log.subcategory_type)
             .filter((value, index, self) => self.indexOf(value) === index)
             .sort();
-    }, [filters.reg_type, filters.control_type, filters.asset_type, runLogs, hierarchy.subcategory_types]);
+    }, [filters.reg_type, filters.control_type, filters.asset_type, runLogs, hierarchy.control_owner_teams, hierarchy.subcategory_types]);
 
     // Apply client-side filters and sort/paginate data
     // Note: Date filters are applied on the backend, other filters are applied here
@@ -254,9 +262,10 @@ export default function ControlStatusDashboard({ instanceId }) {
             if (filters.asset_type && log.asset_type !== filters.asset_type) {
                 return false;
             }
-            // Apply subcategory_type filter
-            if (filters.subcategory_type && log.subcategory_type !== filters.subcategory_type) {
-                return false;
+            // Apply control_owner_team filter (fallback to legacy subcategory_type)
+            if (filters.control_owner_team) {
+                const team = log.control_owner_team || log.subcategory_type || '';
+                if (team !== filters.control_owner_team) return false;
             }
             // Apply frequency filter
             if (filters.frequency && log.frequency !== filters.frequency) {
@@ -266,7 +275,7 @@ export default function ControlStatusDashboard({ instanceId }) {
             if (filters.status && log.status?.toLowerCase() !== filters.status.toLowerCase()) {
                 return false;
             }
-            
+
             // Apply column filters (text search for name and comment, exact match for others)
             if (columnFilters.name) {
                 const nameValue = (log.name || log.control_name || log.control_id || '').toLowerCase();
@@ -289,8 +298,13 @@ export default function ControlStatusDashboard({ instanceId }) {
             if (columnFilters.asset_type && log.asset_type !== columnFilters.asset_type) {
                 return false;
             }
-            if (columnFilters.subcategory_type && log.subcategory_type !== columnFilters.subcategory_type) {
-                return false;
+            if (columnFilters.control_owner_team) {
+                const team = log.control_owner_team || log.subcategory_type || '';
+                if (!String(team).toLowerCase().includes(String(columnFilters.control_owner_team).toLowerCase())) return false;
+            }
+            if (columnFilters.run_mode) {
+                const rm = log.run_mode || '';
+                if (!String(rm).toLowerCase().includes(String(columnFilters.run_mode).toLowerCase())) return false;
             }
             if (columnFilters.frequency && log.frequency !== columnFilters.frequency) {
                 return false;
@@ -305,16 +319,16 @@ export default function ControlStatusDashboard({ instanceId }) {
                     return false;
                 }
             }
-            
+
             return true;
         });
-        
+
         // Sort
         let sorted = [...filtered];
         sorted.sort((a, b) => {
             let aVal = a[sortColumn] || '';
             let bVal = b[sortColumn] || '';
-            
+
             if (sortDirection === 'asc') {
                 return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
             } else {
@@ -344,11 +358,14 @@ export default function ControlStatusDashboard({ instanceId }) {
             if (filters.reg_type && log.reg_type !== filters.reg_type) return false;
             if (filters.control_type && log.control_type !== filters.control_type) return false;
             if (filters.asset_type && log.asset_type !== filters.asset_type) return false;
-            if (filters.subcategory_type && log.subcategory_type !== filters.subcategory_type) return false;
+            if (filters.control_owner_team) {
+                const team = log.control_owner_team || log.subcategory_type || '';
+                if (team !== filters.control_owner_team) return false;
+            }
             if (filters.frequency && log.frequency !== filters.frequency) return false;
             // Status filter (case-insensitive)
             if (filters.status && log.status?.toLowerCase() !== filters.status.toLowerCase()) return false;
-            
+
             // Apply column filters
             if (columnFilters.name) {
                 const nameValue = (log.name || log.control_name || log.control_id || '').toLowerCase();
@@ -359,7 +376,14 @@ export default function ControlStatusDashboard({ instanceId }) {
             if (columnFilters.reg_type && log.reg_type !== columnFilters.reg_type) return false;
             if (columnFilters.control_type && log.control_type !== columnFilters.control_type) return false;
             if (columnFilters.asset_type && log.asset_type !== columnFilters.asset_type) return false;
-            if (columnFilters.subcategory_type && log.subcategory_type !== columnFilters.subcategory_type) return false;
+            if (columnFilters.control_owner_team) {
+                const team = log.control_owner_team || log.subcategory_type || '';
+                if (!String(team).toLowerCase().includes(String(columnFilters.control_owner_team).toLowerCase())) return false;
+            }
+            if (columnFilters.run_mode) {
+                const rm = log.run_mode || '';
+                if (!String(rm).toLowerCase().includes(String(columnFilters.run_mode).toLowerCase())) return false;
+            }
             if (columnFilters.frequency && log.frequency !== columnFilters.frequency) return false;
             // Status filter (case-insensitive)
             if (columnFilters.status && log.status?.toLowerCase() !== columnFilters.status.toLowerCase()) return false;
@@ -367,10 +391,10 @@ export default function ControlStatusDashboard({ instanceId }) {
                 const commentValue = (log.failed_reason || '').toLowerCase();
                 if (!commentValue.includes(columnFilters.comment.toLowerCase())) return false;
             }
-            
+
             return true;
         });
-        
+
         const total = filtered.length;
         // Status comparisons are case-insensitive
         const running = filtered.filter(log => (log.status || '').toLowerCase() === 'running').length;
@@ -427,11 +451,14 @@ export default function ControlStatusDashboard({ instanceId }) {
             if (filters.reg_type && log.reg_type !== filters.reg_type) return false;
             if (filters.control_type && log.control_type !== filters.control_type) return false;
             if (filters.asset_type && log.asset_type !== filters.asset_type) return false;
-            if (filters.subcategory_type && log.subcategory_type !== filters.subcategory_type) return false;
+            if (filters.control_owner_team) {
+                const team = log.control_owner_team || log.subcategory_type || '';
+                if (team !== filters.control_owner_team) return false;
+            }
             if (filters.frequency && log.frequency !== filters.frequency) return false;
             // Status filter (case-insensitive)
             if (filters.status && log.status?.toLowerCase() !== filters.status.toLowerCase()) return false;
-            
+
             // Apply column filters
             if (columnFilters.name) {
                 const nameValue = (log.name || log.control_name || log.control_id || '').toLowerCase();
@@ -442,7 +469,14 @@ export default function ControlStatusDashboard({ instanceId }) {
             if (columnFilters.reg_type && log.reg_type !== columnFilters.reg_type) return false;
             if (columnFilters.control_type && log.control_type !== columnFilters.control_type) return false;
             if (columnFilters.asset_type && log.asset_type !== columnFilters.asset_type) return false;
-            if (columnFilters.subcategory_type && log.subcategory_type !== columnFilters.subcategory_type) return false;
+            if (columnFilters.control_owner_team) {
+                const team = log.control_owner_team || log.subcategory_type || '';
+                if (!String(team).toLowerCase().includes(String(columnFilters.control_owner_team).toLowerCase())) return false;
+            }
+            if (columnFilters.run_mode) {
+                const rm = log.run_mode || '';
+                if (!String(rm).toLowerCase().includes(String(columnFilters.run_mode).toLowerCase())) return false;
+            }
             if (columnFilters.frequency && log.frequency !== columnFilters.frequency) return false;
             // Status filter (case-insensitive)
             if (columnFilters.status && log.status?.toLowerCase() !== columnFilters.status.toLowerCase()) return false;
@@ -450,20 +484,20 @@ export default function ControlStatusDashboard({ instanceId }) {
                 const commentValue = (log.failed_reason || '').toLowerCase();
                 if (!commentValue.includes(columnFilters.comment.toLowerCase())) return false;
             }
-            
+
             return true;
         }).length;
     }, [runLogs, filters, columnFilters]);
-    
+
     const totalPages = Math.ceil(filteredLogsCount / itemsPerPage);
 
     // Chart data based on selected category - shows status counts grouped by category
     const chartData = useMemo(() => {
         const categoryMap = {
-            'reg_type': 'reg_type',
-            'control_type': 'control_type',
-            'asset_type': 'asset_type',
-            'subcategory_type': 'subcategory_type'
+            reg_type: 'reg_type',
+            control_type: 'control_type',
+            asset_type: 'asset_type',
+            control_owner_team: 'control_owner_team'
         };
 
         const categoryKey = categoryMap[chartCategory];
@@ -474,11 +508,14 @@ export default function ControlStatusDashboard({ instanceId }) {
             if (filters.reg_type && log.reg_type !== filters.reg_type) return false;
             if (filters.control_type && log.control_type !== filters.control_type) return false;
             if (filters.asset_type && log.asset_type !== filters.asset_type) return false;
-            if (filters.subcategory_type && log.subcategory_type !== filters.subcategory_type) return false;
+            if (filters.control_owner_team) {
+                const team = log.control_owner_team || log.subcategory_type || '';
+                if (team !== filters.control_owner_team) return false;
+            }
             if (filters.frequency && log.frequency !== filters.frequency) return false;
             // Status filter (case-insensitive)
             if (filters.status && log.status?.toLowerCase() !== filters.status.toLowerCase()) return false;
-            
+
             // Apply column filters
             if (columnFilters.name) {
                 const nameValue = (log.name || log.control_name || log.control_id || '').toLowerCase();
@@ -489,7 +526,14 @@ export default function ControlStatusDashboard({ instanceId }) {
             if (columnFilters.reg_type && log.reg_type !== columnFilters.reg_type) return false;
             if (columnFilters.control_type && log.control_type !== columnFilters.control_type) return false;
             if (columnFilters.asset_type && log.asset_type !== columnFilters.asset_type) return false;
-            if (columnFilters.subcategory_type && log.subcategory_type !== columnFilters.subcategory_type) return false;
+            if (columnFilters.control_owner_team) {
+                const team = log.control_owner_team || log.subcategory_type || '';
+                if (!String(team).toLowerCase().includes(String(columnFilters.control_owner_team).toLowerCase())) return false;
+            }
+            if (columnFilters.run_mode) {
+                const rm = log.run_mode || '';
+                if (!String(rm).toLowerCase().includes(String(columnFilters.run_mode).toLowerCase())) return false;
+            }
             if (columnFilters.frequency && log.frequency !== columnFilters.frequency) return false;
             // Status filter (case-insensitive)
             if (columnFilters.status && log.status?.toLowerCase() !== columnFilters.status.toLowerCase()) return false;
@@ -497,17 +541,20 @@ export default function ControlStatusDashboard({ instanceId }) {
                 const commentValue = (log.failed_reason || '').toLowerCase();
                 if (!commentValue.includes(columnFilters.comment.toLowerCase())) return false;
             }
-            
+
             return true;
         });
 
         // Group by category value and count by status
         const categoryGroups = {};
-        
+
         filtered.forEach(log => {
-            const categoryValue = log[categoryKey] || 'Unknown';
+            const categoryValue =
+                categoryKey === 'control_owner_team'
+                    ? (log.control_owner_team || log.subcategory_type || 'Unknown')
+                    : (log[categoryKey] || 'Unknown');
             const status = log.status || 'unknown';
-            
+
             // Normalize status
             let normalizedStatus = status.toLowerCase();
             if (normalizedStatus === 'completed' || normalizedStatus === 'success') {
@@ -521,7 +568,7 @@ export default function ControlStatusDashboard({ instanceId }) {
             } else {
                 normalizedStatus = status.charAt(0).toUpperCase() + status.slice(1);
             }
-            
+
             if (!categoryGroups[categoryValue]) {
                 categoryGroups[categoryValue] = {
                     Success: 0,
@@ -531,7 +578,7 @@ export default function ControlStatusDashboard({ instanceId }) {
                     [normalizedStatus]: 0
                 };
             }
-            
+
             // Increment count for this status
             if (categoryGroups[categoryValue][normalizedStatus] !== undefined) {
                 categoryGroups[categoryValue][normalizedStatus]++;
@@ -561,7 +608,7 @@ export default function ControlStatusDashboard({ instanceId }) {
             'reg_type': 'Reg Type',
             'control_type': 'Control Type',
             'asset_type': 'Asset Type',
-            'subcategory_type': 'Subcategory Type'
+            'control_owner_team': 'Control Owner Team'
         };
         return labels[category] || category;
     };
@@ -698,18 +745,18 @@ export default function ControlStatusDashboard({ instanceId }) {
                                     </select>
                                 </div>
 
-                                {/* Subcategory Type */}
+                                {/* Control Owner Team */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Subcategory Type
+                                        Control Owner Team
                                     </label>
                                     <select
-                                        value={filters.subcategory_type}
-                                        onChange={(e) => handleFilterChange('subcategory_type', e.target.value)}
+                                        value={filters.control_owner_team}
+                                        onChange={(e) => handleFilterChange('control_owner_team', e.target.value)}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-600 text-sm"
                                     >
                                         <option value="">All</option>
-                                        {filteredSubcategoryTypes.map((type) => (
+                                        {filteredControlOwnerTeams.map((type) => (
                                             <option key={type} value={type}>
                                                 {type}
                                             </option>
@@ -749,8 +796,8 @@ export default function ControlStatusDashboard({ instanceId }) {
                                         <option value="">All</option>
                                         {hierarchy.statuses.map((status) => (
                                             <option key={status} value={status}>
-                                                {status === 'not_started' ? 'Not Started' : 
-                                                 status.charAt(0).toUpperCase() + status.slice(1)}
+                                                {status === 'not_started' ? 'Not Started' :
+                                                    status.charAt(0).toUpperCase() + status.slice(1)}
                                             </option>
                                         ))}
                                     </select>
@@ -782,20 +829,20 @@ export default function ControlStatusDashboard({ instanceId }) {
                             )}
                             {/* Error State */}
                             {error && (
-                            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center">
-                                        <span className="text-red-600 font-medium">Error: {error}</span>
+                                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center">
+                                            <span className="text-red-600 font-medium">Error: {error}</span>
+                                        </div>
+                                        <button
+                                            onClick={loadRunLogs}
+                                            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                                        >
+                                            Retry
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={loadRunLogs}
-                                        className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                                    >
-                                        Retry
-                                    </button>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
                             {/* Statistics Cards */}
                             {!error && !loading && (
@@ -843,7 +890,7 @@ export default function ControlStatusDashboard({ instanceId }) {
                                                 <option value="reg_type">Reg Type</option>
                                                 <option value="control_type">Control Type</option>
                                                 <option value="asset_type">Asset Type</option>
-                                                <option value="subcategory_type">Subcategory Type</option>
+                                                <option value="control_owner_team">Control Owner Team</option>
                                             </select>
                                         </div>
                                     </div>
@@ -853,16 +900,16 @@ export default function ControlStatusDashboard({ instanceId }) {
                                         <ResponsiveContainer width="100%" height={400}>
                                             <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                                                <XAxis 
-                                                    dataKey="name" 
+                                                <XAxis
+                                                    dataKey="name"
                                                     angle={-45}
                                                     textAnchor="end"
                                                     height={100}
                                                     tick={{ fontSize: 12 }}
                                                 />
                                                 <YAxis tick={{ fontSize: 12 }} />
-                                                <Tooltip 
-                                                    contentStyle={{ 
+                                                <Tooltip
+                                                    contentStyle={{
                                                         backgroundColor: 'rgba(255, 255, 255, 0.95)',
                                                         border: '1px solid #e5e7eb',
                                                         borderRadius: '6px'
@@ -879,674 +926,719 @@ export default function ControlStatusDashboard({ instanceId }) {
                                 </div>
                             )}
 
-                        {/* Data Table */}
-                        <div className="bg-white rounded-lg shadow-md">
-                            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-                                <h2 className="text-lg font-semibold text-gray-800">
-                                    Control Run Logs ({runLogs.length} total)
-                                </h2>
-                                <div className="flex items-center gap-3">
-                                    {/* Column Visibility Selector */}
-                                    <div className="relative">
-                                        <button
-                                            ref={columnsButtonRef}
-                                            onClick={() => {
-                                                const nextOpen = !showColumnSelector;
-                                                if (nextOpen) {
-                                                    const rect = columnsButtonRef.current?.getBoundingClientRect();
-                                                    if (rect) {
-                                                        const menuHeight = 420; // ~ header + max-h-96 list + button
-                                                        const margin = 8;
-                                                        const spaceBelow = window.innerHeight - rect.bottom;
-                                                        const openUpwards = spaceBelow < menuHeight + margin;
-                                                        const top = openUpwards
-                                                            ? Math.max(margin, rect.top - menuHeight - margin)
-                                                            : Math.min(window.innerHeight - menuHeight - margin, rect.bottom + margin);
-                                                        const left = Math.min(window.innerWidth - 260 - margin, Math.max(margin, rect.right - 260));
-                                                        setColumnSelectorStyle({
-                                                            position: 'fixed',
-                                                            top: `${top}px`,
-                                                            left: `${left}px`,
-                                                            width: '260px',
-                                                            maxHeight: `${menuHeight}px`,
-                                                            zIndex: 50
-                                                        });
-                                                    } else {
-                                                        setColumnSelectorStyle(null);
+                            {/* Data Table */}
+                            <div className="bg-white rounded-lg shadow-md">
+                                <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+                                    <h2 className="text-lg font-semibold text-gray-800">
+                                        Control Run Logs ({runLogs.length} total)
+                                    </h2>
+                                    <div className="flex items-center gap-3">
+                                        {/* Column Visibility Selector */}
+                                        <div className="relative">
+                                            <button
+                                                ref={columnsButtonRef}
+                                                onClick={() => {
+                                                    const nextOpen = !showColumnSelector;
+                                                    if (nextOpen) {
+                                                        const rect = columnsButtonRef.current?.getBoundingClientRect();
+                                                        if (rect) {
+                                                            const menuHeight = 420; // ~ header + max-h-96 list + button
+                                                            const margin = 8;
+                                                            const spaceBelow = window.innerHeight - rect.bottom;
+                                                            const openUpwards = spaceBelow < menuHeight + margin;
+                                                            const top = openUpwards
+                                                                ? Math.max(margin, rect.top - menuHeight - margin)
+                                                                : Math.min(window.innerHeight - menuHeight - margin, rect.bottom + margin);
+                                                            const left = Math.min(window.innerWidth - 260 - margin, Math.max(margin, rect.right - 260));
+                                                            setColumnSelectorStyle({
+                                                                position: 'fixed',
+                                                                top: `${top}px`,
+                                                                left: `${left}px`,
+                                                                width: '260px',
+                                                                maxHeight: `${menuHeight}px`,
+                                                                zIndex: 50
+                                                            });
+                                                        } else {
+                                                            setColumnSelectorStyle(null);
+                                                        }
                                                     }
-                                                }
-                                                setShowColumnSelector(nextOpen);
-                                            }}
-                                            className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors flex items-center gap-1"
-                                        >
-                                            <span>📋 Columns</span>
-                                        </button>
-                                        {showColumnSelector && (
-                                            <>
-                                                <div 
-                                                    className="fixed inset-0 z-40" 
-                                                    onClick={() => setShowColumnSelector(false)}
-                                                ></div>
-                                                <div
-                                                    className="bg-white border border-gray-300 rounded-lg shadow-lg p-4"
-                                                    style={columnSelectorStyle || undefined}
-                                                >
-                                                    <div className="text-sm font-semibold text-gray-700 mb-3">Select Columns</div>
-                                                    <div className="space-y-2 max-h-96 overflow-y-auto">
-                                                        {Object.entries(visibleColumns).map(([key, value]) => (
-                                                            <label key={key} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={value}
-                                                                    onChange={(e) => {
-                                                                        setVisibleColumns(prev => ({
-                                                                            ...prev,
-                                                                            [key]: e.target.checked
-                                                                        }));
-                                                                    }}
-                                                                    className="rounded border-gray-300 text-blue-600 focus:ring-red-600"
-                                                                />
-                                                                <span className="text-sm text-gray-700">
-                                                                    {key === 'name' ? 'Name' :
-                                                                     key === 'status' ? 'Status' :
-                                                                     key === 'control_run_date' ? 'Control Run Date' :
-                                                                     key === 'business_date' ? 'Business Date' :
-                                                                     key === 'reg_type' ? 'Reg Type' :
-                                                                     key === 'control_type' ? 'Control Type' :
-                                                                     key === 'asset_type' ? 'Asset Type' :
-                                                                     key === 'subcategory_type' ? 'Subcategory' :
-                                                                     key === 'frequency' ? 'Frequency' :
-                                                                     key === 'start_time' ? 'Start Time' :
-                                                                     key === 'end_time' ? 'End Time' :
-                                                                     key === 'comment' ? 'Comment' : key}
-                                                                </span>
-                                                            </label>
-                                                        ))}
-                                                    </div>
-                                                    <button
+                                                    setShowColumnSelector(nextOpen);
+                                                }}
+                                                className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors flex items-center gap-1"
+                                            >
+                                                <span>📋 Columns</span>
+                                            </button>
+                                            {showColumnSelector && (
+                                                <>
+                                                    <div
+                                                        className="fixed inset-0 z-40"
                                                         onClick={() => setShowColumnSelector(false)}
-                                                        className="mt-3 w-full px-3 py-1.5 text-sm text-white rounded transition-colors"
-                                                        style={{ backgroundColor: '#db0011' }}
-                                                        onMouseOver={(e) => e.target.style.backgroundColor = '#a00010'}
-                                                        onMouseOut={(e) => e.target.style.backgroundColor = '#db0011'}
+                                                    ></div>
+                                                    <div
+                                                        className="bg-white border border-gray-300 rounded-lg shadow-lg p-4"
+                                                        style={columnSelectorStyle || undefined}
                                                     >
-                                                        Done
-                                                    </button>
-                                                </div>
-                                            </>
-                                        )}
+                                                        <div className="text-sm font-semibold text-gray-700 mb-3">Select Columns</div>
+                                                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                                                            {Object.entries(visibleColumns).map(([key, value]) => (
+                                                                <label key={key} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={value}
+                                                                        onChange={(e) => {
+                                                                            setVisibleColumns(prev => ({
+                                                                                ...prev,
+                                                                                [key]: e.target.checked
+                                                                            }));
+                                                                        }}
+                                                                        className="rounded border-gray-300 text-blue-600 focus:ring-red-600"
+                                                                    />
+                                                                    <span className="text-sm text-gray-700">
+                                                                        {key === 'name' ? 'Name' :
+                                                                            key === 'status' ? 'Status' :
+                                                                                key === 'control_run_date' ? 'Control Run Date' :
+                                                                                    key === 'business_date' ? 'Business Date' :
+                                                                                        key === 'reg_type' ? 'Reg Type' :
+                                                                                            key === 'control_type' ? 'Control Type' :
+                                                                                                key === 'asset_type' ? 'Asset Type' :
+                                                                                                    key === 'control_owner_team' ? 'Control Owner Team' :
+                                                                                                        key === 'run_mode' ? 'Run Mode' :
+                                                                                                            key === 'frequency' ? 'Frequency' :
+                                                                                                                key === 'start_time' ? 'Start Time' :
+                                                                                                                    key === 'end_time' ? 'End Time' :
+                                                                                                                        key === 'comment' ? 'Comment' : key}
+                                                                    </span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                        <button
+                                                            onClick={() => setShowColumnSelector(false)}
+                                                            className="mt-3 w-full px-3 py-1.5 text-sm text-white rounded transition-colors"
+                                                            style={{ backgroundColor: '#db0011' }}
+                                                            onMouseOver={(e) => e.target.style.backgroundColor = '#a00010'}
+                                                            onMouseOut={(e) => e.target.style.backgroundColor = '#db0011'}
+                                                        >
+                                                            Done
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                        <label className="text-sm text-gray-600">Items per page:</label>
+                                        <select
+                                            value={itemsPerPage}
+                                            onChange={(e) => {
+                                                setItemsPerPage(Number(e.target.value));
+                                                setCurrentPage(1);
+                                            }}
+                                            className="px-2 py-1 border border-gray-300 rounded text-sm"
+                                        >
+                                            <option value={25}>25</option>
+                                            <option value={50}>50</option>
+                                            <option value={100}>100</option>
+                                            <option value={200}>200</option>
+                                        </select>
                                     </div>
-                                    <label className="text-sm text-gray-600">Items per page:</label>
-                                    <select
-                                        value={itemsPerPage}
-                                        onChange={(e) => {
-                                            setItemsPerPage(Number(e.target.value));
-                                            setCurrentPage(1);
-                                        }}
-                                        className="px-2 py-1 border border-gray-300 rounded text-sm"
-                                    >
-                                        <option value={25}>25</option>
-                                        <option value={50}>50</option>
-                                        <option value={100}>100</option>
-                                        <option value={200}>200</option>
-                                    </select>
                                 </div>
-                            </div>
 
-                            {loading ? (
-                                <div className="p-8 text-center">
-                                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                                    <p className="mt-2 text-gray-600">Loading control run logs...</p>
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="overflow-x-auto">
-                                        <table className="min-w-full divide-y divide-gray-200">
-                                            <thead className="bg-gray-50">
-                                                <tr>
-                                                    {visibleColumns.name && (
-                                                        <th
-                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                                                            onClick={() => handleSort('name')}
-                                                        >
-                                                            Name
-                                                            {sortColumn === 'name' && (
-                                                                <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                                                            )}
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.control_run_date && (
-                                                        <th
-                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                                                            onClick={() => handleSort('control_run_date')}
-                                                        >
-                                                            Control Run Date
-                                                            {sortColumn === 'control_run_date' && (
-                                                                <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                                                            )}
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.business_date && (
-                                                        <th
-                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                                                            onClick={() => handleSort('business_date')}
-                                                        >
-                                                            Business Date
-                                                            {sortColumn === 'business_date' && (
-                                                                <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                                                            )}
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.reg_type && (
-                                                        <th
-                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                                                            onClick={() => handleSort('reg_type')}
-                                                        >
-                                                            Reg Type
-                                                            {sortColumn === 'reg_type' && (
-                                                                <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                                                            )}
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.control_type && (
-                                                        <th
-                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                                                            onClick={() => handleSort('control_type')}
-                                                        >
-                                                            Control Type
-                                                            {sortColumn === 'control_type' && (
-                                                                <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                                                            )}
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.asset_type && (
-                                                        <th
-                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                                                            onClick={() => handleSort('asset_type')}
-                                                        >
-                                                            Asset Type
-                                                            {sortColumn === 'asset_type' && (
-                                                                <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                                                            )}
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.subcategory_type && (
-                                                        <th
-                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                                                            onClick={() => handleSort('subcategory_type')}
-                                                        >
-                                                            Subcategory
-                                                            {sortColumn === 'subcategory_type' && (
-                                                                <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                                                            )}
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.frequency && (
-                                                        <th
-                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                                                            onClick={() => handleSort('frequency')}
-                                                        >
-                                                            Frequency
-                                                            {sortColumn === 'frequency' && (
-                                                                <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                                                            )}
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.status && (
-                                                        <th
-                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                                                            onClick={() => handleSort('status')}
-                                                        >
-                                                            Status
-                                                            {sortColumn === 'status' && (
-                                                                <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                                                            )}
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.start_time && (
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Start Time
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.end_time && (
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            End Time
-                                                        </th>
-                                                    )}
-                                                    {visibleColumns.comment && (
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Comment
-                                                        </th>
-                                                    )}
-                                                </tr>
-                                                {/* Filter Row - Always visible when columns are visible */}
-                                                <tr className="bg-gray-100 border-t border-gray-200">
-                                                    {visibleColumns.name && (
-                                                        <td className="px-2 py-2 min-w-[200px]">
-                                                            <div className="relative w-full">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter by name..."
-                                                                    value={columnFilters.name || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, name: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-600 bg-white shadow-sm"
-                                                                    style={{ minWidth: '150px' }}
-                                                                />
-                                                                {columnFilters.name && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setColumnFilters(prev => ({ ...prev, name: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full w-5 h-5 flex items-center justify-center text-sm font-bold"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.control_run_date && (
-                                                        <td className="px-2 py-2">
-                                                            <input
-                                                                type="date"
-                                                                value={columnFilters.control_run_date || ''}
-                                                                onChange={(e) => {
-                                                                    setColumnFilters(prev => ({ ...prev, control_run_date: e.target.value }));
-                                                                    setCurrentPage(1);
-                                                                }}
-                                                                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                            />
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.business_date && (
-                                                        <td className="px-2 py-2">
-                                                            <input
-                                                                type="date"
-                                                                value={columnFilters.business_date || ''}
-                                                                onChange={(e) => {
-                                                                    setColumnFilters(prev => ({ ...prev, business_date: e.target.value }));
-                                                                    setCurrentPage(1);
-                                                                }}
-                                                                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                            />
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.reg_type && (
-                                                        <td className="px-2 py-2">
-                                                            <div className="relative">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter..."
-                                                                    value={columnFilters.reg_type || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, reg_type: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                                />
-                                                                {columnFilters.reg_type && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setColumnFilters(prev => ({ ...prev, reg_type: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.control_type && (
-                                                        <td className="px-2 py-2">
-                                                            <div className="relative">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter..."
-                                                                    value={columnFilters.control_type || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, control_type: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                                />
-                                                                {columnFilters.control_type && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setColumnFilters(prev => ({ ...prev, control_type: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.asset_type && (
-                                                        <td className="px-2 py-2">
-                                                            <div className="relative">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter..."
-                                                                    value={columnFilters.asset_type || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, asset_type: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                                />
-                                                                {columnFilters.asset_type && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setColumnFilters(prev => ({ ...prev, asset_type: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.subcategory_type && (
-                                                        <td className="px-2 py-2">
-                                                            <div className="relative">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter..."
-                                                                    value={columnFilters.subcategory_type || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, subcategory_type: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                                />
-                                                                {columnFilters.subcategory_type && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setColumnFilters(prev => ({ ...prev, subcategory_type: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.frequency && (
-                                                        <td className="px-2 py-2">
-                                                            <div className="relative">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter..."
-                                                                    value={columnFilters.frequency || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, frequency: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                                />
-                                                                {columnFilters.frequency && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setColumnFilters(prev => ({ ...prev, frequency: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.status && (
-                                                        <td className="px-2 py-2">
-                                                            <div className="relative">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter..."
-                                                                    value={columnFilters.status || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, status: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                                />
-                                                                {columnFilters.status && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setColumnFilters(prev => ({ ...prev, status: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.start_time && (
-                                                        <td className="px-2 py-2">
-                                                            <div className="relative">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter..."
-                                                                    value={columnFilters.start_time || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, start_time: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                                />
-                                                                {columnFilters.start_time && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setColumnFilters(prev => ({ ...prev, start_time: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.end_time && (
-                                                        <td className="px-2 py-2">
-                                                            <div className="relative">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter..."
-                                                                    value={columnFilters.end_time || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, end_time: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                                />
-                                                                {columnFilters.end_time && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setColumnFilters(prev => ({ ...prev, end_time: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                    {visibleColumns.comment && (
-                                                        <td className="px-2 py-2">
-                                                            <div className="relative">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Filter comment..."
-                                                                    value={columnFilters.comment || ''}
-                                                                    onChange={(e) => {
-                                                                        setColumnFilters(prev => ({ ...prev, comment: e.target.value }));
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
-                                                                />
-                                                                {columnFilters.comment && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setColumnFilters(prev => ({ ...prev, comment: '' }));
-                                                                            setCurrentPage(1);
-                                                                        }}
-                                                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
-                                                                        title="Clear filter"
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    )}
-                                                </tr>
-                                            </thead>
-                                            <tbody className="bg-white divide-y divide-gray-200">
-                                                {sortedAndPaginatedLogs.length === 0 ? (
+                                {loading ? (
+                                    <div className="p-8 text-center">
+                                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                        <p className="mt-2 text-gray-600">Loading control run logs...</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="overflow-x-auto">
+                                            <table className="min-w-full divide-y divide-gray-200">
+                                                <thead className="bg-gray-50">
                                                     <tr>
-                                                        <td 
-                                                            colSpan={Object.values(visibleColumns).filter(v => v).length} 
-                                                            className="px-6 py-8 text-center text-gray-500"
-                                                        >
-                                                            No control run logs found matching the selected filters. Please adjust your filters to see results.
-                                                        </td>
-                                                    </tr>
-                                                ) : (
-                                                    sortedAndPaginatedLogs.map((log, index) => (
-                                                    <tr key={log.task_id || index} className="hover:bg-gray-50">
                                                         {visibleColumns.name && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {log.name || log.control_name || log.control_id || '-'}
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('name')}
+                                                            >
+                                                                Name
+                                                                {sortColumn === 'name' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.control_run_date && (
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('control_run_date')}
+                                                            >
+                                                                Control Run Date
+                                                                {sortColumn === 'control_run_date' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.business_date && (
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('business_date')}
+                                                            >
+                                                                Business Date
+                                                                {sortColumn === 'business_date' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.reg_type && (
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('reg_type')}
+                                                            >
+                                                                Reg Type
+                                                                {sortColumn === 'reg_type' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.control_type && (
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('control_type')}
+                                                            >
+                                                                Control Type
+                                                                {sortColumn === 'control_type' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.asset_type && (
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('asset_type')}
+                                                            >
+                                                                Asset Type
+                                                                {sortColumn === 'asset_type' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.control_owner_team && (
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('control_owner_team')}
+                                                            >
+                                                                Control Owner Team
+                                                                {sortColumn === 'control_owner_team' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.run_mode && (
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('run_mode')}
+                                                            >
+                                                                Run Mode
+                                                                {sortColumn === 'run_mode' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.frequency && (
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('frequency')}
+                                                            >
+                                                                Frequency
+                                                                {sortColumn === 'frequency' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.status && (
+                                                            <th
+                                                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                                                                onClick={() => handleSort('status')}
+                                                            >
+                                                                Status
+                                                                {sortColumn === 'status' && (
+                                                                    <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                                )}
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.start_time && (
+                                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                                Start Time
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.end_time && (
+                                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                                End Time
+                                                            </th>
+                                                        )}
+                                                        {visibleColumns.comment && (
+                                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                                Comment
+                                                            </th>
+                                                        )}
+                                                    </tr>
+                                                    {/* Filter Row - Always visible when columns are visible */}
+                                                    <tr className="bg-gray-100 border-t border-gray-200">
+                                                        {visibleColumns.name && (
+                                                            <td className="px-2 py-2 min-w-[200px]">
+                                                                <div className="relative w-full">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter by name..."
+                                                                        value={columnFilters.name || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, name: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-600 bg-white shadow-sm"
+                                                                        style={{ minWidth: '150px' }}
+                                                                    />
+                                                                    {columnFilters.name && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setColumnFilters(prev => ({ ...prev, name: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full w-5 h-5 flex items-center justify-center text-sm font-bold"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
                                                         {visibleColumns.control_run_date && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {log.control_run_date || '-'}
+                                                            <td className="px-2 py-2">
+                                                                <input
+                                                                    type="date"
+                                                                    value={columnFilters.control_run_date || ''}
+                                                                    onChange={(e) => {
+                                                                        setColumnFilters(prev => ({ ...prev, control_run_date: e.target.value }));
+                                                                        setCurrentPage(1);
+                                                                    }}
+                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                />
                                                             </td>
                                                         )}
                                                         {visibleColumns.business_date && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {log.business_date || '-'}
+                                                            <td className="px-2 py-2">
+                                                                <input
+                                                                    type="date"
+                                                                    value={columnFilters.business_date || ''}
+                                                                    onChange={(e) => {
+                                                                        setColumnFilters(prev => ({ ...prev, business_date: e.target.value }));
+                                                                        setCurrentPage(1);
+                                                                    }}
+                                                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                />
                                                             </td>
                                                         )}
                                                         {visibleColumns.reg_type && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {log.reg_type || '-'}
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter..."
+                                                                        value={columnFilters.reg_type || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, reg_type: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.reg_type && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, reg_type: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
                                                         {visibleColumns.control_type && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {log.control_type || '-'}
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter..."
+                                                                        value={columnFilters.control_type || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, control_type: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.control_type && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, control_type: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
                                                         {visibleColumns.asset_type && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {log.asset_type || '-'}
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter..."
+                                                                        value={columnFilters.asset_type || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, asset_type: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.asset_type && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, asset_type: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
-                                                        {visibleColumns.subcategory_type && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {log.subcategory_type || '-'}
+                                                        {visibleColumns.control_owner_team && (
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter..."
+                                                                        value={columnFilters.control_owner_team || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, control_owner_team: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.control_owner_team && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, control_owner_team: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                        )}
+                                                        {visibleColumns.run_mode && (
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter..."
+                                                                        value={columnFilters.run_mode || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, run_mode: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.run_mode && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, run_mode: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
                                                         {visibleColumns.frequency && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {log.frequency || '-'}
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter..."
+                                                                        value={columnFilters.frequency || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, frequency: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.frequency && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, frequency: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
                                                         {visibleColumns.status && (
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(log.status)}`}>
-                                                                    <span className="mr-1">{getStatusIcon(log.status)}</span>
-                                                                    {log.status === 'not_started' ? 'Not Started' : (log.status || 'Unknown')}
-                                                                </span>
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter..."
+                                                                        value={columnFilters.status || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, status: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.status && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, status: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
                                                         {visibleColumns.start_time && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                                {log.start_time ? new Date(log.start_time).toLocaleString() : '-'}
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter..."
+                                                                        value={columnFilters.start_time || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, start_time: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.start_time && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, start_time: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
                                                         {visibleColumns.end_time && (
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                                {log.end_time ? new Date(log.end_time).toLocaleString() : '-'}
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter..."
+                                                                        value={columnFilters.end_time || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, end_time: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.end_time && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, end_time: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
                                                         {visibleColumns.comment && (
-                                                            <td className="px-6 py-4 text-sm text-gray-500 max-w-md" title={log.failed_reason || ''}>
-                                                                <div className="break-words">
-                                                                    {log.failed_reason || '-'}
+                                                            <td className="px-2 py-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Filter comment..."
+                                                                        value={columnFilters.comment || ''}
+                                                                        onChange={(e) => {
+                                                                            setColumnFilters(prev => ({ ...prev, comment: e.target.value }));
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 bg-white"
+                                                                    />
+                                                                    {columnFilters.comment && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setColumnFilters(prev => ({ ...prev, comment: '' }));
+                                                                                setCurrentPage(1);
+                                                                            }}
+                                                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                                                            title="Clear filter"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             </td>
                                                         )}
                                                     </tr>
-                                                ))
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    {/* Pagination */}
-                                    {totalPages > 1 && (
-                                        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-                                            <div className="text-sm text-gray-700">
-                                                Showing {sortedAndPaginatedLogs.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredLogsCount)} of {filteredLogsCount} results
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <button
-                                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                                    disabled={currentPage === 1}
-                                                    className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                >
-                                                    Previous
-                                                </button>
-                                                <span className="px-4 py-2 text-sm text-gray-700">
-                                                    Page {currentPage} of {totalPages}
-                                                </span>
-                                                <button
-                                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                                    disabled={currentPage === totalPages}
-                                                    className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                >
-                                                    Next
-                                                </button>
-                                            </div>
+                                                </thead>
+                                                <tbody className="bg-white divide-y divide-gray-200">
+                                                    {sortedAndPaginatedLogs.length === 0 ? (
+                                                        <tr>
+                                                            <td
+                                                                colSpan={Object.values(visibleColumns).filter(v => v).length}
+                                                                className="px-6 py-8 text-center text-gray-500"
+                                                            >
+                                                                No control run logs found matching the selected filters. Please adjust your filters to see results.
+                                                            </td>
+                                                        </tr>
+                                                    ) : (
+                                                        sortedAndPaginatedLogs.map((log, index) => (
+                                                            <tr key={log.task_id || index} className="hover:bg-gray-50">
+                                                                {visibleColumns.name && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {log.name || log.control_name || log.control_id || '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.control_run_date && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {log.control_run_date || '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.business_date && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {log.business_date || '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.reg_type && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {log.reg_type || '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.control_type && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {log.control_type || '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.asset_type && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {log.asset_type || '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.control_owner_team && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {log.control_owner_team || log.subcategory_type || '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.run_mode && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {log.run_mode || '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.frequency && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {log.frequency || '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.status && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(log.status)}`}>
+                                                                            <span className="mr-1">{getStatusIcon(log.status)}</span>
+                                                                            {log.status === 'not_started' ? 'Not Started' : (log.status || 'Unknown')}
+                                                                        </span>
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.start_time && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                        {log.start_time ? new Date(log.start_time).toLocaleString() : '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.end_time && (
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                        {log.end_time ? new Date(log.end_time).toLocaleString() : '-'}
+                                                                    </td>
+                                                                )}
+                                                                {visibleColumns.comment && (
+                                                                    <td className="px-6 py-4 text-sm text-gray-500 max-w-md" title={log.failed_reason || ''}>
+                                                                        <div className="break-words">
+                                                                            {log.failed_reason || '-'}
+                                                                        </div>
+                                                                    </td>
+                                                                )}
+                                                            </tr>
+                                                        ))
+                                                    )}
+                                                </tbody>
+                                            </table>
                                         </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
+
+                                        {/* Pagination */}
+                                        {totalPages > 1 && (
+                                            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                                                <div className="text-sm text-gray-700">
+                                                    Showing {sortedAndPaginatedLogs.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredLogsCount)} of {filteredLogsCount} results
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                                        disabled={currentPage === 1}
+                                                        className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        Previous
+                                                    </button>
+                                                    <span className="px-4 py-2 text-sm text-gray-700">
+                                                        Page {currentPage} of {totalPages}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                                        disabled={currentPage === totalPages}
+                                                        className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        Next
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -1877,6 +1877,21 @@ export default function QualityControl({ instanceId }) {
             });
         }
 
+        // Clear processIds for reset nodes so the Logs button disappears
+        setProcessIds(prev => {
+            const updated = { ...(prev || {}) };
+            toReset.forEach(id => {
+                delete updated[id];
+            });
+            return updated;
+        });
+
+        // Close log viewer if it was opened for a reset node
+        setSelectedLogNode(prev => {
+            if (!prev) return prev;
+            return toReset.includes(prev.nodeId) ? null : prev;
+        });
+
         // Reset edge colors and labels for all affected edges
         setEdges(eds => eds.map(edge => {
             if (toReset.includes(edge.source)) {
@@ -1893,7 +1908,7 @@ export default function QualityControl({ instanceId }) {
             }
             return edge;
         }));
-    }, [downstreamMap, processIds, updateNodeStatus, setNodeOutputs, setEdges]);
+    }, [downstreamMap, processIds, updateNodeStatus, setNodeOutputs, setEdges, setProcessIds, setSelectedLogNode]);
 
     // Update nodes when areParamsApplied changes
     useEffect(() => {
