@@ -76,7 +76,59 @@ const ControlRunsPage = () => {
         control_type: '',
         asset_type: ''
     });
+    const [runLogsHierarchy, setRunLogsHierarchy] = useState(null);
     const [historyCache, setHistoryCache] = useState(new Map());
+
+    const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const tokenMatch = (haystack, token) => {
+        const h = String(haystack || '').toLowerCase();
+        const t = String(token || '').toLowerCase();
+        if (!h || !t) return false;
+        // Token boundary: start/end or separator (_ - space)
+        const re = new RegExp(`(^|[\\s_\\-])${escapeRegex(t)}([\\s_\\-]|$)`, 'i');
+        return re.test(h);
+    };
+
+    const pickBestToken = (haystack, candidates) => {
+        const list = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
+        if (list.length === 0) return '';
+        // Prefer longest match to avoid overlaps (e.g., EMIR vs EMIRUK)
+        const sorted = [...list].sort((a, b) => String(b).length - String(a).length);
+        for (const c of sorted) {
+            if (tokenMatch(haystack, c)) return String(c);
+        }
+        return '';
+    };
+
+    const getControlHierarchyFields = (control) => {
+        // Prefer explicit fields if backend provides them
+        const explicitRt = (control?.reg_type ?? '').toString().trim();
+        const explicitCt = (control?.control_type ?? '').toString().trim();
+        const explicitAt = (control?.asset_type ?? '').toString().trim();
+        if (explicitRt || explicitCt || explicitAt) {
+            return { reg_type: explicitRt, control_type: explicitCt, asset_type: explicitAt };
+        }
+
+        const name = (control?.name ?? '').toString();
+        const nameLower = name.toLowerCase();
+
+        // reg_type rule: control name starts with reg_type
+        // Use hierarchy list when available, otherwise fall back to prefix before first underscore.
+        const regCandidates = runLogsHierarchy?.reg_types || [];
+        const rtFromList = pickBestToken(nameLower.split(/[_\-\s]/)[0], regCandidates);
+        const rtPrefix = rtFromList || (name.split(/[_\-\s]/)[0] || '');
+
+        // control_type + asset_type: token-match using hierarchy lists (boundary-safe)
+        const ct = pickBestToken(nameLower, runLogsHierarchy?.control_types || []);
+        const at = pickBestToken(nameLower, runLogsHierarchy?.asset_types || []);
+
+        return {
+            reg_type: rtPrefix,
+            control_type: ct,
+            asset_type: at
+        };
+    };
 
     useEffect(() => {
         // Initial load: Cache controls and history at once
@@ -86,6 +138,16 @@ const ControlRunsPage = () => {
                 const controlsResponse = await ApiService.getControls();
                 const controlsList = controlsResponse.controls || [];
                 setControls(controlsList);
+
+                // Load hierarchy options from Control Status (for dropdown filters)
+                // This keeps Control Runs dropdowns aligned with Control Status taxonomy
+                try {
+                    const hierarchy = await ApiService.getControlRunLogsHierarchy();
+                    setRunLogsHierarchy(hierarchy || null);
+                } catch (e) {
+                    // Best-effort: Control Runs can still fall back to scanning controls
+                    setRunLogsHierarchy(null);
+                }
 
                 // Load all historical runs (higher limit for initial cache)
                 const historyResponse = await ApiService.getControlRunHistory(null, null, 200);
@@ -452,14 +514,26 @@ const ControlRunsPage = () => {
     };
 
     const controlFilterHierarchy = useMemo(() => {
+        // Prefer hierarchy from Control Status endpoint when available
+        const fromRunLogs = runLogsHierarchy && (
+            (Array.isArray(runLogsHierarchy.reg_types) && runLogsHierarchy.reg_types.length) ||
+            (Array.isArray(runLogsHierarchy.control_types) && runLogsHierarchy.control_types.length) ||
+            (Array.isArray(runLogsHierarchy.asset_types) && runLogsHierarchy.asset_types.length)
+        );
+        if (fromRunLogs) {
+            return {
+                reg_types: runLogsHierarchy.reg_types || [],
+                control_types: runLogsHierarchy.control_types || [],
+                asset_types: runLogsHierarchy.asset_types || []
+            };
+        }
+
         const regTypes = new Set();
         const controlTypes = new Set();
         const assetTypes = new Set();
 
         (controls || []).forEach((c) => {
-            const rt = (c?.reg_type ?? '').toString().trim();
-            const ct = (c?.control_type ?? '').toString().trim();
-            const at = (c?.asset_type ?? '').toString().trim();
+            const { reg_type: rt, control_type: ct, asset_type: at } = getControlHierarchyFields(c);
             if (rt) regTypes.add(rt);
             if (ct) controlTypes.add(ct);
             if (at) assetTypes.add(at);
@@ -471,15 +545,14 @@ const ControlRunsPage = () => {
             control_types: Array.from(controlTypes).sort(sortAlpha),
             asset_types: Array.from(assetTypes).sort(sortAlpha)
         };
-    }, [controls]);
+    }, [controls, runLogsHierarchy]);
 
     const filteredControlTypes = useMemo(() => {
         if (!controlFilters.reg_type) return controlFilterHierarchy.control_types;
         const set = new Set();
         (controls || []).forEach((c) => {
-            const rt = (c?.reg_type ?? '').toString().trim();
+            const { reg_type: rt, control_type: ct } = getControlHierarchyFields(c);
             if (rt !== controlFilters.reg_type) return;
-            const ct = (c?.control_type ?? '').toString().trim();
             if (ct) set.add(ct);
         });
         return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
@@ -489,11 +562,9 @@ const ControlRunsPage = () => {
         if (!controlFilters.reg_type && !controlFilters.control_type) return controlFilterHierarchy.asset_types;
         const set = new Set();
         (controls || []).forEach((c) => {
-            const rt = (c?.reg_type ?? '').toString().trim();
-            const ct = (c?.control_type ?? '').toString().trim();
+            const { reg_type: rt, control_type: ct, asset_type: at } = getControlHierarchyFields(c);
             if (controlFilters.reg_type && rt !== controlFilters.reg_type) return;
             if (controlFilters.control_type && ct !== controlFilters.control_type) return;
-            const at = (c?.asset_type ?? '').toString().trim();
             if (at) set.add(at);
         });
         return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
@@ -503,9 +574,7 @@ const ControlRunsPage = () => {
         const hasAny = !!(controlFilters.reg_type || controlFilters.control_type || controlFilters.asset_type);
         if (!hasAny) return controls;
         return (controls || []).filter((c) => {
-            const rt = (c?.reg_type ?? '').toString().trim();
-            const ct = (c?.control_type ?? '').toString().trim();
-            const at = (c?.asset_type ?? '').toString().trim();
+            const { reg_type: rt, control_type: ct, asset_type: at } = getControlHierarchyFields(c);
             if (controlFilters.reg_type && rt !== controlFilters.reg_type) return false;
             if (controlFilters.control_type && ct !== controlFilters.control_type) return false;
             if (controlFilters.asset_type && at !== controlFilters.asset_type) return false;
@@ -526,8 +595,6 @@ const ControlRunsPage = () => {
             return [];
         }
     }, [controlsAfterDropdownFilters, searchTerm]);
-    console.log(filteredControls.length, 'filtered');
-    console.log(controls.length, 'controls');
 
     const getStatusCounts = () => {
         const counts = {

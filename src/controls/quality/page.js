@@ -13,8 +13,10 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { FaCheckCircle, FaTimesCircle, FaSpinner, FaCircle, FaPlay, FaStop, FaUndo, FaChevronLeft, FaChevronUp, FaGripLines, FaTable, FaClock, FaCheck } from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
 import { ApiService } from '../../services/api';
 import WebSocketService from '../../services/websocket';
+import { useUser } from '../../contexts/UserContext';
 import { buildDependencyMap, buildDownstreamMap, getAllDownstreamNodes } from '../../utils/graph-utils';
 import { HandlerContext } from './HandlerContext';
 import DataOutputTab from '../../components/DataOutput/DataOutputTab';
@@ -674,6 +676,34 @@ const safeLocalStorageSet = (key, value) => {
 };
 
 export default function QualityControl({ instanceId }) {
+    const { currentUser } = useUser();
+    const navigate = useNavigate();
+
+    const userKey = (currentUser?.username || currentUser?.email || currentUser?.name || 'anonymous').toString();
+    const recentInstancesKey = `recent_instances:quality:${userKey}`;
+    const [recentInstancesOpen, setRecentInstancesOpen] = useState(false);
+    const [recentInstances, setRecentInstances] = useState([]);
+
+    useEffect(() => {
+        if (!instanceId) return;
+        try {
+            const raw = localStorage.getItem(recentInstancesKey);
+            const parsed = raw ? JSON.parse(raw) : [];
+            const now = new Date().toISOString();
+            const next = [
+                { instanceId, lastVisitedAt: now },
+                ...Array.isArray(parsed) ? parsed : []
+            ]
+                .filter((x) => x && x.instanceId)
+                .filter((x, idx, arr) => arr.findIndex((y) => y.instanceId === x.instanceId) === idx)
+                .slice(0, 5);
+            localStorage.setItem(recentInstancesKey, JSON.stringify(next));
+            setRecentInstances(next);
+        } catch {
+            // ignore storage errors
+        }
+    }, [instanceId, recentInstancesKey]);
+
     // Define instance-specific localStorage keys
     const paramKey = `${CONSTANTS.STORAGE_KEYS.PARAMS}_${instanceId || 'default'}`;
     const nodeOutputsKey = `${CONSTANTS.STORAGE_KEYS.NODE_OUTPUTS}_${instanceId || 'default'}`;
@@ -2669,6 +2699,70 @@ export default function QualityControl({ instanceId }) {
                         {isSidebarOpen && (
                             <div className="px-3 py-3 overflow-y-auto h-full bg-gray-50">
                                 <div className="space-y-4">
+                                    {/* Recent Instances (per user) */}
+                                    <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setRecentInstancesOpen((v) => !v)}
+                                                className="w-full px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-medium transition-colors shadow-sm"
+                                                title="Recent instances"
+                                            >
+                                                Recent instances
+                                            </button>
+                                        </div>
+
+                                        {recentInstancesOpen && (
+                                            <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden">
+                                                {recentInstances.length === 0 ? (
+                                                    <div className="px-3 py-3 text-xs text-gray-500">
+                                                        No recent instances yet.
+                                                    </div>
+                                                ) : (
+                                                    recentInstances.map((item) => (
+                                                        <div key={item.instanceId} className="flex items-stretch border-b border-gray-100 last:border-b-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => navigate(`/instances/quality/${item.instanceId}`)}
+                                                                className="flex-1 text-left px-3 py-2 hover:bg-gray-50"
+                                                                title={item.instanceId}
+                                                            >
+                                                                <div className="text-xs font-semibold text-gray-800 truncate">{item.instanceId}</div>
+                                                                {item.lastVisitedAt && (
+                                                                    <div className="text-[11px] text-gray-500">
+                                                                        {new Date(item.lastVisitedAt).toLocaleString()}
+                                                                    </div>
+                                                                )}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const text = String(item.instanceId || '');
+                                                                    if (!text) return;
+                                                                    if (navigator?.clipboard?.writeText) {
+                                                                        navigator.clipboard.writeText(text).catch(() => { });
+                                                                    }
+                                                                }}
+                                                                className="px-3 text-xs font-bold text-gray-700 hover:bg-gray-100 border-l border-gray-100"
+                                                                title="Copy instance id"
+                                                            >
+                                                                Copy
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => window.open(`/instances/quality/${item.instanceId}`, '_blank')}
+                                                                className="px-3 text-xs font-bold text-blue-700 hover:bg-blue-50 border-l border-gray-100"
+                                                                title="Open in new tab"
+                                                            >
+                                                                Open
+                                                            </button>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
                                     {/* CONFIGURATION Section */}
                                     <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
                                         <h4 className="text-gray-800 font-bold text-xs uppercase mb-3 tracking-wide">CONFIGURATION</h4>

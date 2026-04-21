@@ -1,17 +1,56 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FaChartLine, FaCheckCircle, FaCog, FaServer, FaDesktop, FaFlask, FaRobot, FaChartBar, FaSearch, FaFileAlt, FaDatabase } from 'react-icons/fa';
 import './globals.css';
 import HSBCLogo from './components/HSBCLogo';
+import { useUser } from './contexts/UserContext';
 
 function HomePage() {
   const [activeSection, setActiveSection] = useState(null);
   const [hoveredSection, setHoveredSection] = useState(null);
+  const { currentUser } = useUser();
+
+  const userKey = (currentUser?.username || currentUser?.email || currentUser?.name || 'anonymous').toString();
+  const recentCompletenessKey = `recent_instances:completeness:${userKey}`;
+  const recentQualityKey = `recent_instances:quality:${userKey}`;
+
+  const recentCompleteness = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(recentCompletenessKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [recentCompletenessKey]);
+
+  const recentQuality = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(recentQualityKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [recentQualityKey]);
 
   const openNewInstance = (type) => {
     // Generate a unique ID using timestamp and random number
     const uniqueId = `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     // Open the instance page in a new tab
     window.open(`/instances/${type}/${uniqueId}`, '_blank');
+  };
+
+  const openExistingInstance = (type, instanceId) => {
+    if (!instanceId) return;
+    window.open(`/instances/${type}/${instanceId}`, '_blank');
+  };
+
+  const copyText = (text) => {
+    const value = String(text || '');
+    if (!value) return;
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(value).catch(() => { });
+    }
   };
 
   const openMonitoring = () => {
@@ -104,14 +143,18 @@ function HomePage() {
       description: 'Build and test full outer-join population reconciliation controls to verify data completeness between source and target systems.',
       icon: FaCheckCircle,
       accessKey: 'completeness',
-      onClick: () => openNewInstance('completeness')
+      onClick: () => openNewInstance('completeness'),
+      recentItems: recentCompleteness,
+      recentType: 'completeness'
     },
     {
       title: 'QA Workbench',
       description: 'Build and test attribute-level accuracy and validity tests to ensure data integrity back to source as well as Collateral and Valuations Daily Submission completeness. Also used for data Pre-Processing.',
       icon: FaChartLine,
       accessKey: 'quality',
-      onClick: () => openNewInstance('quality')
+      onClick: () => openNewInstance('quality'),
+      recentItems: recentQuality,
+      recentType: 'quality'
     },
     {
       title: 'Controls Runner',
@@ -335,6 +378,57 @@ function HomePage() {
                         <h4 className="text-lg font-semibold text-black">{item.title}</h4>
                       </div>
                       <p className="text-black text-sm leading-6">{item.description}</p>
+
+                      {Array.isArray(item.recentItems) && item.recentItems.length > 0 && item.recentType && (
+                        <div
+                          className="mt-4 pt-4 border-t border-slate-200"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
+                            Recent instances
+                          </div>
+                          <div className="space-y-2">
+                            {item.recentItems.slice(0, 5).map((ri) => (
+                              <div
+                                key={ri.instanceId}
+                                className="flex items-stretch rounded border border-slate-200 overflow-hidden"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => openExistingInstance(item.recentType, ri.instanceId)}
+                                  className="flex-1 text-left px-3 py-2 hover:bg-slate-50"
+                                  title={ri.instanceId}
+                                >
+                                  <div className="text-xs font-semibold text-slate-900 truncate">
+                                    {ri.instanceId}
+                                  </div>
+                                  {ri.lastVisitedAt && (
+                                    <div className="text-[11px] text-slate-600">
+                                      {new Date(ri.lastVisitedAt).toLocaleString()}
+                                    </div>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => copyText(ri.instanceId)}
+                                  className="px-3 text-xs font-bold text-slate-700 hover:bg-slate-100 border-l border-slate-200"
+                                  title="Copy instance id"
+                                >
+                                  Copy
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openExistingInstance(item.recentType, ri.instanceId)}
+                                  className="px-3 text-xs font-bold text-blue-700 hover:bg-blue-50 border-l border-slate-200"
+                                  title="Open in new tab"
+                                >
+                                  Open
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

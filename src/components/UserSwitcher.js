@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../contexts/UserContext';
 import { FaUserCircle, FaHome } from 'react-icons/fa';
 
@@ -7,7 +7,33 @@ const UserProfile = () => {
     const { currentUser, loading } = useUser();
     const [isExpanded, setIsExpanded] = useState(true);
     const location = useLocation();
+    const navigate = useNavigate();
     const isHomePage = location.pathname === '/';
+    const [isHomeMenuOpen, setIsHomeMenuOpen] = useState(false);
+    const homeButtonRef = useRef(null);
+
+    const userKey = (currentUser?.username || currentUser?.email || currentUser?.name || 'anonymous').toString();
+
+    const instanceContext = useMemo(() => {
+        const p = location.pathname || '';
+        const completenessMatch = p.match(/^\/instances\/completeness\/([^/]+)$/);
+        if (completenessMatch) return { type: 'completeness', instanceId: completenessMatch[1] };
+        const qualityMatch = p.match(/^\/instances\/quality\/([^/]+)$/);
+        if (qualityMatch) return { type: 'quality', instanceId: qualityMatch[1] };
+        return { type: null, instanceId: null };
+    }, [location.pathname]);
+
+    const recentInstances = useMemo(() => {
+        if (!instanceContext.type) return [];
+        try {
+            const key = `recent_instances:${instanceContext.type}:${userKey}`;
+            const raw = localStorage.getItem(key);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed.slice(0, 5) : [];
+        } catch {
+            return [];
+        }
+    }, [instanceContext.type, userKey]);
 
     useEffect(() => {
         if (currentUser) {
@@ -36,13 +62,80 @@ const UserProfile = () => {
             onMouseLeave={() => setIsExpanded(false)}
         >
             {!isHomePage && (
-                <Link
-                    to="/"
-                    className="flex items-center justify-center w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 transition-colors"
-                    title="Go to Home"
-                >
-                    <FaHome className="text-white text-lg" />
-                </Link>
+                <div className="relative">
+                    <button
+                        ref={homeButtonRef}
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setIsHomeMenuOpen((v) => !v);
+                        }}
+                        className="flex items-center justify-center w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 transition-colors"
+                        title="Home / Recent instances"
+                    >
+                        <FaHome className="text-white text-lg" />
+                    </button>
+
+                    {isHomeMenuOpen && (
+                        <>
+                            <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setIsHomeMenuOpen(false)}
+                            />
+                            <div
+                                className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden"
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsHomeMenuOpen(false);
+                                        navigate('/');
+                                    }}
+                                    className="w-full text-left px-4 py-3 text-sm font-semibold text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                >
+                                    Go to Home
+                                </button>
+
+                                {instanceContext.type && (
+                                    <>
+                                        <div className="px-4 py-2 text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/30 border-t border-gray-200 dark:border-gray-700">
+                                            Recent instances ({instanceContext.type})
+                                        </div>
+                                        <div className="max-h-64 overflow-auto">
+                                            {recentInstances.length === 0 ? (
+                                                <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                                                    No recent instances yet.
+                                                </div>
+                                            ) : (
+                                                recentInstances.map((item) => (
+                                                    <button
+                                                        key={item.instanceId}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsHomeMenuOpen(false);
+                                                            navigate(`/instances/${instanceContext.type}/${item.instanceId}`);
+                                                        }}
+                                                        className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 border-t border-gray-100 dark:border-gray-700"
+                                                        title={item.instanceId}
+                                                    >
+                                                        <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                                                            {item.instanceId}
+                                                        </div>
+                                                        {item.lastVisitedAt && (
+                                                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                                                                {new Date(item.lastVisitedAt).toLocaleString()}
+                                                            </div>
+                                                        )}
+                                                    </button>
+                                                ))
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </>
+                    )}
+                </div>
             )}
             <FaUserCircle className="text-gray-600 dark:text-gray-300 text-2xl flex-shrink-0" />
             <div className={`flex flex-col overflow-hidden transition-all duration-300 ${isExpanded ? 'opacity-100 max-w-[200px]' : 'opacity-0 max-w-0'}`}>
