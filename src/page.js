@@ -7,7 +7,7 @@ import { useUser } from './contexts/UserContext';
 function HomePage() {
   const [activeSection, setActiveSection] = useState(null);
   const [hoveredSection, setHoveredSection] = useState(null);
-  const { currentUser } = useUser();
+  const { currentUser, hasAccess, loading } = useUser();
 
   const userKey = (currentUser?.username || currentUser?.email || currentUser?.name || 'anonymous').toString();
   const recentCompletenessKey = `recent_instances:completeness:${userKey}`;
@@ -143,7 +143,10 @@ function HomePage() {
       description: 'Build and test full outer-join population reconciliation controls to verify data completeness between source and target systems.',
       icon: FaCheckCircle,
       accessKey: 'completeness',
-      onClick: () => openNewInstance('completeness'),
+      onClick: () => {
+        if (typeof hasAccess === 'function' && !hasAccess('completeness')) return;
+        openNewInstance('completeness');
+      },
       recentItems: recentCompleteness,
       recentType: 'completeness'
     },
@@ -152,7 +155,10 @@ function HomePage() {
       description: 'Build and test attribute-level accuracy and validity tests to ensure data integrity back to source as well as Collateral and Valuations Daily Submission completeness. Also used for data Pre-Processing.',
       icon: FaChartLine,
       accessKey: 'quality',
-      onClick: () => openNewInstance('quality'),
+      onClick: () => {
+        if (typeof hasAccess === 'function' && !hasAccess('quality')) return;
+        openNewInstance('quality');
+      },
       recentItems: recentQuality,
       recentType: 'quality'
     },
@@ -208,7 +214,7 @@ function HomePage() {
       accessKey: 'workflow',
       onClick: () => openNewInstance('workflow')
     },
-        {
+    {
       title: 'Refernce Search',
       description: 'A utility to automatically deploy control configurations to Production after first checking the config runs successfully using a sample subset of the input data; complete with real-time logging and status tracking.',
       icon: FaCog,
@@ -270,7 +276,22 @@ function HomePage() {
     }
   ];
 
-  const sectionsWithAccess = sections;
+  const sectionsWithAccess = useMemo(() => {
+    const canSee = (item) => {
+      if (!item?.accessKey) return true;
+      if (typeof hasAccess !== 'function') return true;
+      // While loading, avoid hiding everything (prevents empty home page flash)
+      if (loading) return true;
+      return hasAccess(item.accessKey);
+    };
+
+    return sections
+      .map((section) => ({
+        ...section,
+        items: Array.isArray(section.items) ? section.items.filter(canSee) : []
+      }))
+      .filter((section) => Array.isArray(section.items) && section.items.length > 0);
+  }, [hasAccess, loading, sections]);
 
   const visibleSectionName = hoveredSection || activeSection;
   const visibleSection = sectionsWithAccess.find((section) => section.name === visibleSectionName);
@@ -324,9 +345,8 @@ function HomePage() {
                 key={section.name}
                 onMouseEnter={() => setHoveredSection(section.name)}
                 onClick={() => setActiveSection((current) => (current === section.name ? null : section.name))}
-                className={`controls-parent-card ${
-                  visibleSectionName === section.name ? 'controls-parent-card-active' : ''
-                }`}
+                className={`controls-parent-card ${visibleSectionName === section.name ? 'controls-parent-card-active' : ''
+                  }`}
                 aria-pressed={visibleSectionName === section.name}
               >
                 <div className="flex items-center gap-3 mb-3">
@@ -365,11 +385,10 @@ function HomePage() {
                       key={item.title}
                       onClick={item.onClick}
                       style={{ animationDelay: `${index * 70}ms` }}
-                      className={`rounded-lg border border-slate-200 p-5 transition-all duration-300 ease-in-out bg-white ${
-                        isClickable
+                      className={`rounded-lg border border-slate-200 p-5 transition-all duration-300 ease-in-out bg-white ${isClickable
                           ? 'cursor-pointer hover:scale-[1.02] hover:shadow-xl hover:shadow-slate-700/10 transform-gpu'
                           : 'cursor-default'
-                      } controls-subcard-animate`}
+                        } controls-subcard-animate`}
                     >
                       <div className="flex items-center gap-4 mb-3">
                         <div className="p-2 rounded-lg bg-white text-red-500 transition-colors">
