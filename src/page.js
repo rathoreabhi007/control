@@ -23,22 +23,75 @@ function HomePage() {
     }
   };
 
+  const readRecentWithFallback = (primaryKey, fallbackKeys) => {
+    const primary = readRecent(primaryKey);
+    if (primary.length > 0) return { items: primary, sourceKey: primaryKey };
+
+    for (const k of (Array.isArray(fallbackKeys) ? fallbackKeys : [])) {
+      if (!k || k === primaryKey) continue;
+      const v = readRecent(k);
+      if (v.length > 0) return { items: v, sourceKey: k };
+    }
+
+    return { items: [], sourceKey: primaryKey };
+  };
+
   const [recentCompleteness, setRecentCompleteness] = useState(() => readRecent(recentCompletenessKey));
   const [recentQuality, setRecentQuality] = useState(() => readRecent(recentQualityKey));
 
   useEffect(() => {
     // refresh on user change / after user finishes loading
-    setRecentCompleteness(readRecent(recentCompletenessKey));
-    setRecentQuality(readRecent(recentQualityKey));
+    const completenessFallbackKeys = [
+      'recent_instances:completeness:true',
+      'recent_instances:completeness:false',
+      'recent_instances:completeness:anonymous'
+    ];
+    const qualityFallbackKeys = [
+      'recent_instances:quality:true',
+      'recent_instances:quality:false',
+      'recent_instances:quality:anonymous'
+    ];
+
+    const syncFromStorage = () => {
+      const c = readRecentWithFallback(recentCompletenessKey, completenessFallbackKeys);
+      const q = readRecentWithFallback(recentQualityKey, qualityFallbackKeys);
+
+      setRecentCompleteness(c.items);
+      setRecentQuality(q.items);
+
+      // One-way migrate legacy keys (e.g. :true/:false) into correct per-user key
+      try {
+        if (c.items.length > 0 && c.sourceKey !== recentCompletenessKey) {
+          localStorage.setItem(recentCompletenessKey, JSON.stringify(c.items.slice(0, 5)));
+        }
+      } catch { }
+      try {
+        if (q.items.length > 0 && q.sourceKey !== recentQualityKey) {
+          localStorage.setItem(recentQualityKey, JSON.stringify(q.items.slice(0, 5)));
+        }
+      } catch { }
+    };
+
+    syncFromStorage();
 
     const refresh = () => {
-      setRecentCompleteness(readRecent(recentCompletenessKey));
-      setRecentQuality(readRecent(recentQualityKey));
+      syncFromStorage();
     };
 
     const onStorage = (e) => {
       if (!e?.key) return;
-      if (e.key === recentCompletenessKey || e.key === recentQualityKey) refresh();
+      if (
+        e.key === recentCompletenessKey ||
+        e.key === recentQualityKey ||
+        e.key === 'recent_instances:completeness:true' ||
+        e.key === 'recent_instances:completeness:false' ||
+        e.key === 'recent_instances:completeness:anonymous' ||
+        e.key === 'recent_instances:quality:true' ||
+        e.key === 'recent_instances:quality:false' ||
+        e.key === 'recent_instances:quality:anonymous'
+      ) {
+        refresh();
+      }
     };
 
     const onFocus = () => refresh();
