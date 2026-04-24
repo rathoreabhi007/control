@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FaChartLine, FaCheckCircle, FaCog, FaServer, FaDesktop, FaFlask, FaRobot, FaChartBar, FaSearch, FaFileAlt, FaDatabase } from 'react-icons/fa';
 import './globals.css';
 import HSBCLogo from './components/HSBCLogo';
@@ -13,25 +13,49 @@ function HomePage() {
   const recentCompletenessKey = `recent_instances:completeness:${userKey}`;
   const recentQualityKey = `recent_instances:quality:${userKey}`;
 
-  const recentCompleteness = useMemo(() => {
+  const readRecent = (key) => {
     try {
-      const raw = localStorage.getItem(recentCompletenessKey);
+      const raw = localStorage.getItem(key);
       const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? parsed.slice(0, 5) : [];
     } catch {
       return [];
     }
-  }, [recentCompletenessKey]);
+  };
 
-  const recentQuality = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(recentQualityKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }, [recentQualityKey]);
+  const [recentCompleteness, setRecentCompleteness] = useState(() => readRecent(recentCompletenessKey));
+  const [recentQuality, setRecentQuality] = useState(() => readRecent(recentQualityKey));
+
+  useEffect(() => {
+    // refresh on user change / after user finishes loading
+    setRecentCompleteness(readRecent(recentCompletenessKey));
+    setRecentQuality(readRecent(recentQualityKey));
+
+    const refresh = () => {
+      setRecentCompleteness(readRecent(recentCompletenessKey));
+      setRecentQuality(readRecent(recentQualityKey));
+    };
+
+    const onStorage = (e) => {
+      if (!e?.key) return;
+      if (e.key === recentCompletenessKey || e.key === recentQualityKey) refresh();
+    };
+
+    const onFocus = () => refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [recentCompletenessKey, recentQualityKey, loading]);
 
   const openNewInstance = (type) => {
     // Generate a unique ID using timestamp and random number
@@ -386,8 +410,8 @@ function HomePage() {
                       onClick={item.onClick}
                       style={{ animationDelay: `${index * 70}ms` }}
                       className={`rounded-lg border border-slate-200 p-5 transition-all duration-300 ease-in-out bg-white ${isClickable
-                          ? 'cursor-pointer hover:scale-[1.02] hover:shadow-xl hover:shadow-slate-700/10 transform-gpu'
-                          : 'cursor-default'
+                        ? 'cursor-pointer hover:scale-[1.02] hover:shadow-xl hover:shadow-slate-700/10 transform-gpu'
+                        : 'cursor-default'
                         } controls-subcard-animate`}
                     >
                       <div className="flex items-center gap-4 mb-3">
