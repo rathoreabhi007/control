@@ -951,6 +951,23 @@ export default function CompletenessControl({ instanceId }) {
                 testRun: 'off'
             };
     });
+
+    const tempFileBasePrefix = useMemo(() => {
+        const userId = (currentUser?.id ?? '').toString().trim();
+        return userId ? `/REGQA/TTRControls/GarbageTemp/${userId}/` : '';
+    }, [currentUser?.id]);
+
+    useEffect(() => {
+        if (!tempFileBasePrefix) return;
+
+        setRunParams((prev) => {
+            const current = (prev?.tempFilePath ?? '').toString();
+            if (!current) return { ...(prev || {}), tempFilePath: tempFileBasePrefix };
+            if (current.startsWith(tempFileBasePrefix)) return prev;
+            // If user had a value but prefix/user changed, keep the previous value as suffix
+            return { ...(prev || {}), tempFilePath: `${tempFileBasePrefix}${current.replace(/^\/+/, '')}` };
+        });
+    }, [tempFileBasePrefix]);
     const [selectedLogNode, setSelectedLogNode] = useState(null); // For log viewer
     const [processIds, setProcessIds] = useState(() => {
         const savedProcessIds = localStorage.getItem(processIdsKey);
@@ -1248,10 +1265,22 @@ export default function CompletenessControl({ instanceId }) {
         // Clean the input value by trimming whitespace
         const cleanValue = value.trim();
 
-        setRunParams(prev => ({
-            ...prev,
-            [param]: cleanValue
-        }));
+        setRunParams(prev => {
+            if (param === 'tempFilePath' && tempFileBasePrefix) {
+                const suffix = cleanValue.startsWith(tempFileBasePrefix)
+                    ? cleanValue.slice(tempFileBasePrefix.length)
+                    : cleanValue;
+                const normalizedSuffix = suffix.replace(/^\/+/, '');
+                return {
+                    ...prev,
+                    tempFilePath: `${tempFileBasePrefix}${normalizedSuffix}`
+                };
+            }
+            return {
+                ...prev,
+                [param]: cleanValue
+            };
+        });
 
         // Clear the error state for this field when user types
         if (invalidFields.has(param)) {
@@ -1262,11 +1291,16 @@ export default function CompletenessControl({ instanceId }) {
     };
 
     const validateParameters = useCallback(() => {
+        const forcedTempFilePath = tempFileBasePrefix
+            ? `${tempFileBasePrefix}${String(runParams?.tempFilePath || '').startsWith(tempFileBasePrefix)
+                ? String(runParams?.tempFilePath || '').slice(tempFileBasePrefix.length).replace(/^\/+/, '')
+                : String(runParams?.tempFilePath || '').replace(/^\/+/, '')}`
+            : (runParams?.tempFilePath ?? '');
         const newInvalidFields = new Set();
         let hasErrors = false;
 
         // Check each parameter for empty or whitespace-only values
-        Object.entries(runParams).forEach(([key, value]) => {
+        Object.entries({ ...(runParams || {}), tempFilePath: forcedTempFilePath }).forEach(([key, value]) => {
             if (!value || (typeof value === 'string' && value.trim() === '')) {
                 newInvalidFields.add(key);
                 hasErrors = true;
@@ -1282,12 +1316,13 @@ export default function CompletenessControl({ instanceId }) {
         });
 
         if (!hasErrors) {
-            console.log('✅ All parameters are valid:', runParams);
-            const success = safeLocalStorageSet(paramKey, JSON.stringify(runParams));
+            const paramsToSave = { ...(runParams || {}), tempFilePath: forcedTempFilePath };
+            console.log('✅ All parameters are valid:', paramsToSave);
+            const success = safeLocalStorageSet(paramKey, JSON.stringify(paramsToSave));
             if (!success) {
                 console.warn('Failed to save parameters to localStorage');
             }
-            setValidatedParams(runParams);
+            setValidatedParams(paramsToSave);
             setAreParamsApplied(true);
         } else {
             try {
@@ -1299,7 +1334,7 @@ export default function CompletenessControl({ instanceId }) {
         }
 
         return !hasErrors;
-    }, [runParams, paramKey]);
+    }, [runParams, paramKey, tempFileBasePrefix]);
 
     const handleApplyParams = useCallback(() => {
         const isValid = validateParameters();
@@ -1356,6 +1391,27 @@ export default function CompletenessControl({ instanceId }) {
                                 <option value="off" className="text-gray-800">Off</option>
                                 <option value="on" className="text-gray-800">On</option>
                             </select>
+                        ) : key === 'tempFilePath' ? (
+                            <div className="flex items-stretch rounded-lg border border-gray-300 bg-gray-50 overflow-hidden">
+                                <div
+                                    className="px-3 py-2 text-xs text-gray-700 bg-gray-100 border-r border-gray-300 whitespace-nowrap"
+                                    title={tempFileBasePrefix || 'Waiting for user...'}
+                                >
+                                    {tempFileBasePrefix || '/REGQA/TTRControls/GarbageTemp/<userId>/'}
+                                </div>
+                                <input
+                                    type="text"
+                                    value={
+                                        tempFileBasePrefix && (value || '').toString().startsWith(tempFileBasePrefix)
+                                            ? (value || '').toString().slice(tempFileBasePrefix.length)
+                                            : ''
+                                    }
+                                    onChange={(e) => handleParamChange(key, `${tempFileBasePrefix}${e.target.value}`)}
+                                    className="flex-1 px-3 py-2 text-xs text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                                    placeholder="Enter subfolder (optional)"
+                                    disabled={!tempFileBasePrefix}
+                                />
+                            </div>
                         ) : (
                             <input
                                 type="text"
