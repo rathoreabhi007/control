@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FaChartLine, FaCheckCircle, FaCog, FaServer, FaDesktop, FaFlask, FaRobot, FaChartBar, FaSearch, FaFileAlt, FaDatabase } from 'react-icons/fa';
 import './globals.css';
 import HSBCLogo from './components/HSBCLogo';
@@ -13,7 +13,7 @@ function HomePage() {
   const recentCompletenessKey = `recent_instances:completeness:${userKey}`;
   const recentQualityKey = `recent_instances:quality:${userKey}`;
 
-  const readRecent = (key) => {
+  const readRecent = useCallback((key) => {
     try {
       const raw = localStorage.getItem(key);
       const parsed = raw ? JSON.parse(raw) : [];
@@ -21,9 +21,9 @@ function HomePage() {
     } catch {
       return [];
     }
-  };
+  }, []);
 
-  const readRecentWithFallback = (primaryKey, fallbackKeys) => {
+  const readRecentWithFallback = useCallback((primaryKey, fallbackKeys) => {
     const primary = readRecent(primaryKey);
     if (primary.length > 0) return { items: primary, sourceKey: primaryKey };
 
@@ -34,7 +34,7 @@ function HomePage() {
     }
 
     return { items: [], sourceKey: primaryKey };
-  };
+  }, [readRecent]);
 
   const [recentCompleteness, setRecentCompleteness] = useState(() => readRecent(recentCompletenessKey));
   const [recentQuality, setRecentQuality] = useState(() => readRecent(recentQualityKey));
@@ -108,7 +108,7 @@ function HomePage() {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [recentCompletenessKey, recentQualityKey, loading]);
+  }, [recentCompletenessKey, recentQualityKey, loading, readRecentWithFallback]);
 
   const openNewInstance = (type) => {
     // Generate a unique ID using timestamp and random number
@@ -325,35 +325,35 @@ function HomePage() {
     }
   ];
 
-  const sections = [
-    {
-      name: 'Controls Tower',
-      description: 'A suite of dashboards providing visibility into control execution status as well as underlying platform and system health.',
-      items: controlsTowerItems
-    },
-    {
-      name: 'Controls Workbench',
-      description: 'A dedicated environment for authoring, testing, and managing the business logic for all controls, providing specialized modules for different control types.',
-      items: controlsWorkbenchItems
-    },
-    {
-      name: 'Control Configuration Toolbox',
-      description: 'A comprehensive suite of integrated tools designed to streamline and accelerate the entire lifecycle of creating, testing, and deploying configurations for Controls. It empowers configuration authors to build robust and accurate control logic with maximum efficiency and confidence.',
-      items: controlConfigurationItems
-    },
-    {
-      name: 'AI Ops Oversight',
-      description: 'Automated quality assurance capabilities that evaluate the performance and accuracy of GenAI assistants used within TnTR Ops.',
-      items: aiOpsOversightItems
-    },
-    {
-      name: 'Operational Governance Dashboard',
-      description: 'An interactive dashboard for TnTR Operations to monitor, prioritize, and manage the day-to-day operational effort of Control Output explains and remediation.',
-      items: operationalGovernanceItems
-    }
-  ];
-
   const sectionsWithAccess = useMemo(() => {
+    const sections = [
+      {
+        name: 'Controls Tower',
+        description: 'A suite of dashboards providing visibility into control execution status as well as underlying platform and system health.',
+        items: controlsTowerItems
+      },
+      {
+        name: 'Controls Workbench',
+        description: 'A dedicated environment for authoring, testing, and managing the business logic for all controls, providing specialized modules for different control types.',
+        items: controlsWorkbenchItems
+      },
+      {
+        name: 'Control Configuration Toolbox',
+        description: 'A comprehensive suite of integrated tools designed to streamline and accelerate the entire lifecycle of creating, testing, and deploying configurations for Controls. It empowers configuration authors to build robust and accurate control logic with maximum efficiency and confidence.',
+        items: controlConfigurationItems
+      },
+      {
+        name: 'AI Ops Oversight',
+        description: 'Automated quality assurance capabilities that evaluate the performance and accuracy of GenAI assistants used within TnTR Ops.',
+        items: aiOpsOversightItems
+      },
+      {
+        name: 'Operational Governance Dashboard',
+        description: 'An interactive dashboard for TnTR Operations to monitor, prioritize, and manage the day-to-day operational effort of Control Output explains and remediation.',
+        items: operationalGovernanceItems
+      }
+    ];
+
     const canSee = (item) => {
       if (!item?.accessKey) return true;
       if (typeof hasAccess !== 'function') return true;
@@ -368,7 +368,7 @@ function HomePage() {
         items: Array.isArray(section.items) ? section.items.filter(canSee) : []
       }))
       .filter((section) => Array.isArray(section.items) && section.items.length > 0);
-  }, [hasAccess, loading, sections]);
+  }, [aiOpsOversightItems, controlConfigurationItems, controlsTowerItems, controlsWorkbenchItems, hasAccess, loading, operationalGovernanceItems]);
 
   const visibleSectionName = hoveredSection || activeSection;
   const visibleSection = sectionsWithAccess.find((section) => section.name === visibleSectionName);
