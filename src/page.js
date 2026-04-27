@@ -110,82 +110,54 @@ function HomePage() {
     };
   }, [recentCompletenessKey, recentQualityKey, loading, readRecentWithFallback]);
 
-  const openNewInstance = (type) => {
+  const openNewInstance = useCallback((type) => {
     // Generate a unique ID using timestamp and random number
     const uniqueId = `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     // Open the instance page in a new tab
     window.open(`/instances/${type}/${uniqueId}`, '_blank');
-  };
+  }, []);
 
-  const openExistingInstance = (type, instanceId) => {
+  const openExistingInstance = useCallback((type, instanceId) => {
     if (!instanceId) return;
     window.open(`/instances/${type}/${instanceId}`, '_blank');
-  };
+  }, []);
 
-  const copyText = (text) => {
+  const copyText = useCallback((text) => {
     const value = String(text || '');
     if (!value) return;
     if (navigator?.clipboard?.writeText) {
       navigator.clipboard.writeText(value).catch(() => { });
     }
-  };
+  }, []);
 
-  const openMonitoring = () => {
-    // Open monitoring dashboard in new tab
-    window.open('/monitoring', '_blank');
-  };
+  const openMonitoring = useCallback(() => window.open('/monitoring', '_blank'), []);
 
-  const openValidator = () => {
-    // Open validator page in new tab
-    window.open('/validator', '_blank');
-  };
+  const openValidator = useCallback(() => window.open('/validator', '_blank'), []);
 
-  const openControlStatus = () => {
-    // Open control status dashboard in new tab
-    window.open('/control-status', '_blank');
-  };
+  const openControlStatus = useCallback(() => window.open('/control-status', '_blank'), []);
 
-  const openControlRuns = () => {
-    // Open control runs page in new tab
-    window.open('/control-runs', '_blank');
-  };
+  const openControlRuns = useCallback(() => window.open('/control-runs', '_blank'), []);
 
-  const openAutoConfigDeployment = () => {
-    // Open AutoConfig Deployment page in new tab
-    window.open('/auto-config-deployment', '_blank');
-  };
+  const openAutoConfigDeployment = useCallback(() => window.open('/auto-config-deployment', '_blank'), []);
 
-  const openAIAssistant = () => {
-    // Open AI Assistant page in new tab
-    window.open('/ai-assistant', '_blank');
-  };
+  const openAIAssistant = useCallback(() => window.open('/ai-assistant', '_blank'), []);
 
-  const openJudgmentAnalytics = () => {
-    // Open Judgment Analytics page in new tab
-    window.open('/judgment-analytics', '_blank');
-  };
+  const openJudgmentAnalytics = useCallback(() => window.open('/judgment-analytics', '_blank'), []);
 
-  const openConfigSearch = () => {
-    window.open('/config-search', '_blank');
-  };
+  const openConfigSearch = useCallback(() => window.open('/config-search', '_blank'), []);
 
-  const openConfigValidator = () => {
-    window.open('/config-validator', '_blank');
-  };
+  const openConfigValidator = useCallback(() => window.open('/config-validator', '_blank'), []);
 
-  const openSupervisoryDashboard = () => {
-    window.open('/supervisory-dashboard', '_blank');
-  };
+  const openSupervisoryDashboard = useCallback(() => window.open('/supervisory-dashboard', '_blank'), []);
 
-  const openSupervisoryTrends = () => {
-    window.open('/supervisory-trends', '_blank');
-  };
+  const openSupervisoryTrends = useCallback(() => window.open('/supervisory-trends', '_blank'), []);
 
-  const openReferenceSearch = () => {
-    window.open('/reference-search', '_blank');
-  };
+  const openReferenceSearch = useCallback(() => window.open('/reference-search', '_blank'), []);
 
-  const controlsTowerItems = [
+  const openInputFileMonitoring = useCallback(() => window.open('/input-file-monitoring', '_blank'), []);
+  const openOutputFileMonitoring = useCallback(() => window.open('/output-file-monitoring', '_blank'), []);
+
+  const controlsTowerItems = useMemo(() => ([
     {
       title: 'Control Execution Status',
       description: 'Real-time dashboard for monitoring control run status and performance. Analyse run status and execution trends including filtering by regulation, asset class, and control type.',
@@ -197,13 +169,13 @@ function HomePage() {
       title: 'Control Input File Monitoring',
       description: 'Real-time dashboard for monitoring expected vs actual arrival status of control input files. Analyse status and trends including filtering by regulation, asset class, and control type.',
       icon: FaDatabase,
-      onClick: () => window.open('/input-file-monitoring', '_blank')
+      onClick: openInputFileMonitoring
     },
     {
       title: 'Control Output Health Monitoring',
       description: 'Dashboard of automated daily regression testing and integrity checks on the outputs of the Controls Platform. Provide a final layer of assurance, detecting systemic issues, data processing errors, or unexpected deviations from established operational baselines.',
       icon: FaChartLine,
-      onClick: () => window.open('/output-file-monitoring', '_blank')
+      onClick: openOutputFileMonitoring
     },
     {
       title: 'System Health Monitoring',
@@ -212,18 +184,27 @@ function HomePage() {
       accessKey: 'monitoring',
       onClick: openMonitoring
     }
-  ];
+  ]), [openControlStatus, openInputFileMonitoring, openMonitoring, openOutputFileMonitoring]);
 
-  const controlsWorkbenchItems = [
+  const openCompletenessWorkbench = useCallback(() => {
+    if (typeof hasAccess === 'function' && !hasAccess('completeness')) return;
+    openNewInstance('completeness');
+  }, [hasAccess, openNewInstance]);
+
+  const openQualityWorkbench = useCallback(() => {
+    if (typeof hasAccess === 'function' && !hasAccess('quality')) return;
+    openNewInstance('quality');
+  }, [hasAccess, openNewInstance]);
+
+  const openWorkflowInstance = useCallback(() => openNewInstance('workflow'), [openNewInstance]);
+
+  const controlsWorkbenchItems = useMemo(() => ([
     {
       title: 'Completeness Workbench',
       description: 'Build and test full outer-join population reconciliation controls to verify data completeness between source and target systems.',
       icon: FaCheckCircle,
       accessKey: 'completeness',
-      onClick: () => {
-        if (typeof hasAccess === 'function' && !hasAccess('completeness')) return;
-        openNewInstance('completeness');
-      },
+      onClick: openCompletenessWorkbench,
       recentItems: recentCompleteness,
       recentType: 'completeness'
     },
@@ -232,10 +213,7 @@ function HomePage() {
       description: 'Build and test attribute-level accuracy and validity tests to ensure data integrity back to source as well as Collateral and Valuations Daily Submission completeness. Also used for data Pre-Processing.',
       icon: FaChartLine,
       accessKey: 'quality',
-      onClick: () => {
-        if (typeof hasAccess === 'function' && !hasAccess('quality')) return;
-        openNewInstance('quality');
-      },
+      onClick: openQualityWorkbench,
       recentItems: recentQuality,
       recentType: 'quality'
     },
@@ -246,9 +224,9 @@ function HomePage() {
       accessKey: 'control-run',
       onClick: openControlRuns
     }
-  ];
+  ]), [openCompletenessWorkbench, openControlRuns, openQualityWorkbench, recentCompleteness, recentQuality]);
 
-  const controlConfigurationItems = [
+  const controlConfigurationItems = useMemo(() => ([
     {
       title: 'Configuration Function Simulator',
       description: 'An interactive tool for rapidly testing and validating data transformation logic. Instantly execute functions and formulas on sample data to analyze results before deployment.',
@@ -289,7 +267,7 @@ function HomePage() {
       description: 'A visual, drag-and-drop workflow builder for designing and prototyping complex data pipelines and ETL processes without writing code. Primarily used for building temporary test harnesses for testing complex code changes to the platform.',
       icon: FaChartLine,
       accessKey: 'workflow',
-      onClick: () => openNewInstance('workflow')
+      onClick: openWorkflowInstance
     },
     {
       title: 'Refernce Search',
@@ -298,9 +276,9 @@ function HomePage() {
       accessKey: 'auto-config-deployment',
       onClick: openReferenceSearch,
     },
-  ];
+  ]), [openAIAssistant, openAutoConfigDeployment, openConfigSearch, openConfigValidator, openReferenceSearch, openValidator, openWorkflowInstance]);
 
-  const aiOpsOversightItems = [
+  const aiOpsOversightItems = useMemo(() => ([
     {
       title: 'Controls Configuration AI Assistant Performance Analytics',
       description: 'An automated quality assurance module that evaluates the performance and accuracy of the GenAI Config Assistant responses, providing analytics on its accuracy and other key metrics.',
@@ -308,9 +286,9 @@ function HomePage() {
       accessKey: 'judgment-analytics',
       onClick: openJudgmentAnalytics
     }
-  ];
+  ]), [openJudgmentAnalytics]);
 
-  const operationalGovernanceItems = [
+  const operationalGovernanceItems = useMemo(() => ([
     {
       title: 'Supervisory Dashboard',
       description: 'Monitor, prioritize, and manage the remediation of control breaks. Features aged break analysis and dynamic pivot-table aggregations.',
@@ -323,7 +301,7 @@ function HomePage() {
       icon: FaChartLine,
       onClick: openSupervisoryTrends
     }
-  ];
+  ]), [openSupervisoryDashboard, openSupervisoryTrends]);
 
   const sectionsWithAccess = useMemo(() => {
     const sections = [
