@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useUser } from '../contexts/UserContext';
+import { getInstanceDisplayLabel } from '../utils/instance-id';
 import { FaUserCircle, FaHome } from 'react-icons/fa';
 
 const UserProfile = () => {
@@ -119,7 +120,7 @@ const UserProfile = () => {
                                                         title={item.instanceId}
                                                     >
                                                         <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
-                                                            {item.instanceId}
+                                                            {getInstanceDisplayLabel(item)}
                                                         </div>
                                                         {item.lastVisitedAt && (
                                                             <div className="text-xs text-gray-500 dark:text-gray-400">

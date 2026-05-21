@@ -17,7 +17,6 @@ const ConfigValidatorPage = () => {
 
     // Validation state
     const [validationState, setValidationState] = useState('idle'); // idle | validating | completed | failed | error
-    const [taskId, setTaskId] = useState(null);
     const [results, setResults] = useState(null);
     const [error, setError] = useState(null);
 
@@ -74,7 +73,6 @@ const ConfigValidatorPage = () => {
         try {
             const response = await ApiService.startConfigValidation(filePath.trim(), controlType);
             const newTaskId = response.task_id;
-            setTaskId(newTaskId);
 
             // Start polling for status
             pollingRef.current = setInterval(async () => {
@@ -153,7 +151,6 @@ const ConfigValidatorPage = () => {
         setFilePath('');
         setControlType('');
         setValidationState('idle');
-        setTaskId(null);
         setResults(null);
         setError(null);
         setSheetNames([]);
@@ -165,7 +162,6 @@ const ConfigValidatorPage = () => {
         setShowHistory(false);
 
         if (item.has_results && item.task_id) {
-            setTaskId(item.task_id);
             setValidationState('validating');
             await fetchResults(item.task_id);
         }
@@ -351,13 +347,12 @@ const ConfigValidatorPage = () => {
                                     <button
                                         key={name}
                                         onClick={() => setActiveSheet(name)}
-                                        className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
-                                            isActive
+                                        className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${isActive
                                                 ? isValidation
                                                     ? 'bg-red-50 text-red-700 border border-b-0 border-red-200'
                                                     : 'bg-white text-gray-900 border border-b-0 border-gray-200'
                                                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                                        }`}
+                                            }`}
                                     >
                                         {isValidation && (
                                             <FaExclamationTriangle className="text-red-500" />

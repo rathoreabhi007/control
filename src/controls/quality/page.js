@@ -18,6 +18,15 @@ import { ApiService } from '../../services/api';
 import WebSocketService from '../../services/websocket';
 import { useUser } from '../../contexts/UserContext';
 import { buildDependencyMap, buildDownstreamMap, getAllDownstreamNodes } from '../../utils/graph-utils';
+import {
+    buildTempFilePath,
+    getInstanceDisplayLabel,
+    getTempFileSubfolderDisplay,
+    migrateInstanceStorage,
+    replaceRecentInstance,
+    resolveRenamedInstanceId,
+    upsertRecentInstance,
+} from '../../utils/instance-id';
 import { HandlerContext } from './HandlerContext';
 import DataOutputTab from '../../components/DataOutput/DataOutputTab';
 import UserAttributesIcon from '../../components/UserAttributesIcon';
@@ -686,22 +695,8 @@ export default function QualityControl({ instanceId }) {
 
     useEffect(() => {
         if (!instanceId) return;
-        try {
-            const raw = localStorage.getItem(recentInstancesKey);
-            const parsed = raw ? JSON.parse(raw) : [];
-            const now = new Date().toISOString();
-            const next = [
-                { instanceId, lastVisitedAt: now },
-                ...Array.isArray(parsed) ? parsed : []
-            ]
-                .filter((x) => x && x.instanceId)
-                .filter((x, idx, arr) => arr.findIndex((y) => y.instanceId === x.instanceId) === idx)
-                .slice(0, 5);
-            localStorage.setItem(recentInstancesKey, JSON.stringify(next));
-            setRecentInstances(next);
-        } catch {
-            // ignore storage errors
-        }
+        const next = upsertRecentInstance(recentInstancesKey, instanceId);
+        setRecentInstances(next);
     }, [instanceId, recentInstancesKey]);
 
     // Define instance-specific localStorage keys
@@ -779,15 +774,14 @@ export default function QualityControl({ instanceId }) {
     }, [currentUser?.id]);
 
     useEffect(() => {
-        if (!tempFileBasePrefix) return;
+        if (!tempFileBasePrefix || !instanceId) return;
 
+        const path = buildTempFilePath(tempFileBasePrefix, instanceId);
         setRunParams((prev) => {
-            const current = (prev?.tempFilePath ?? '').toString();
-            if (!current) return { ...(prev || {}), tempFilePath: tempFileBasePrefix };
-            if (current.startsWith(tempFileBasePrefix)) return prev;
-            return { ...(prev || {}), tempFilePath: `${tempFileBasePrefix}${current.replace(/^\/+/, '')}` };
+            if (prev?.tempFilePath === path) return prev;
+            return { ...(prev || {}), tempFilePath: path };
         });
-    }, [tempFileBasePrefix]);
+    }, [tempFileBasePrefix, instanceId]);
     const [selectedLogNode, setSelectedLogNode] = useState(null); // For log viewer
     const [processIds, setProcessIds] = useState(() => {
         const savedProcessIds = localStorage.getItem(processIdsKey);
@@ -1085,22 +1079,12 @@ export default function QualityControl({ instanceId }) {
         // Clean the input value by trimming whitespace
         const cleanValue = value.trim();
 
-        setRunParams(prev => {
-            if (param === 'tempFilePath' && tempFileBasePrefix) {
-                const suffix = cleanValue.startsWith(tempFileBasePrefix)
-                    ? cleanValue.slice(tempFileBasePrefix.length)
-                    : cleanValue;
-                const normalizedSuffix = suffix.replace(/^\/+/, '');
-                return {
-                    ...prev,
-                    tempFilePath: `${tempFileBasePrefix}${normalizedSuffix}`
-                };
-            }
-            return {
-                ...prev,
-                [param]: cleanValue
-            };
-        });
+        if (param === 'tempFilePath') return;
+
+        setRunParams(prev => ({
+            ...prev,
+            [param]: cleanValue
+        }));
 
         // Clear the error state for this field when user types
         if (invalidFields.has(param)) {
@@ -1111,10 +1095,8 @@ export default function QualityControl({ instanceId }) {
     };
 
     const validateParameters = useCallback(() => {
-        const forcedTempFilePath = tempFileBasePrefix
-            ? `${tempFileBasePrefix}${String(runParams?.tempFilePath || '').startsWith(tempFileBasePrefix)
-                ? String(runParams?.tempFilePath || '').slice(tempFileBasePrefix.length).replace(/^\/+/, '')
-                : String(runParams?.tempFilePath || '').replace(/^\/+/, '')}`
+        const forcedTempFilePath = tempFileBasePrefix && instanceId
+            ? buildTempFilePath(tempFileBasePrefix, instanceId)
             : (runParams?.tempFilePath ?? '');
         const newInvalidFields = new Set();
         let hasErrors = false;
@@ -1154,18 +1136,61 @@ export default function QualityControl({ instanceId }) {
         }
 
         return !hasErrors;
-    }, [runParams, paramKey, tempFileBasePrefix]);
+    }, [runParams, paramKey, tempFileBasePrefix, instanceId]);
 
     const handleApplyParams = useCallback(() => {
         const isValid = validateParameters();
         if (!isValid) {
-            // console.log('⚠️ Parameter validation failed. Please check highlighted fields.');
             setAreParamsApplied(false);
             return false;
         }
+
+        const rename = resolveRenamedInstanceId(
+            instanceId,
+            runParams?.inputConfigFilePattern,
+            'quality'
+        );
+        const effectiveInstanceId = rename?.newInstanceId || instanceId;
+
+        if (rename) {
+            migrateInstanceStorage(instanceId, rename.newInstanceId);
+            if (tempFileBasePrefix) {
+                const newPath = buildTempFilePath(tempFileBasePrefix, rename.newInstanceId);
+                const paramsKey = `validatedParams_${rename.newInstanceId}`;
+                try {
+                    const raw = localStorage.getItem(paramsKey);
+                    if (raw) {
+                        const saved = JSON.parse(raw);
+                        saved.tempFilePath = newPath;
+                        localStorage.setItem(paramsKey, JSON.stringify(saved));
+                    }
+                } catch {
+                    // ignore storage errors
+                }
+            }
+            const next = replaceRecentInstance(
+                recentInstancesKey,
+                instanceId,
+                rename.newInstanceId,
+                rename.configSlug
+            );
+            setRecentInstances(next);
+            navigate(`/instances/quality/${rename.newInstanceId}`, { replace: true });
+        } else if (tempFileBasePrefix && effectiveInstanceId) {
+            const path = buildTempFilePath(tempFileBasePrefix, effectiveInstanceId);
+            setRunParams((prev) => ({ ...(prev || {}), tempFilePath: path }));
+        }
+
         setAreParamsApplied(true);
         return true;
-    }, [validateParameters]);
+    }, [
+        validateParameters,
+        instanceId,
+        runParams,
+        tempFileBasePrefix,
+        recentInstancesKey,
+        navigate,
+    ]);
 
     // Enhanced input styling to match the new design
     const getInputStyle = (fieldName) => {
@@ -1221,15 +1246,12 @@ export default function QualityControl({ instanceId }) {
                                 </div>
                                 <input
                                     type="text"
-                                    value={
-                                        tempFileBasePrefix && (value || '').toString().startsWith(tempFileBasePrefix)
-                                            ? (value || '').toString().slice(tempFileBasePrefix.length)
-                                            : ''
-                                    }
-                                    onChange={(e) => handleParamChange(key, `${tempFileBasePrefix}${e.target.value}`)}
-                                    className="flex-1 px-3 py-2 text-xs text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-                                    placeholder="Enter subfolder (optional)"
-                                    disabled={!tempFileBasePrefix}
+                                    readOnly
+                                    value={instanceId ? getTempFileSubfolderDisplay(instanceId) : ''}
+                                    className="flex-1 px-3 py-2 text-xs text-gray-800 bg-gray-100 cursor-default focus:outline-none"
+                                    placeholder="Set when instance is named"
+                                    disabled={!tempFileBasePrefix || !instanceId}
+                                    title={value || buildTempFilePath(tempFileBasePrefix, instanceId)}
                                 />
                             </div>
                         ) : (
@@ -2782,7 +2804,9 @@ export default function QualityControl({ instanceId }) {
                                                                 className="flex-1 text-left px-3 py-2 hover:bg-gray-50"
                                                                 title={item.instanceId}
                                                             >
-                                                                <div className="text-xs font-semibold text-gray-800 truncate">{item.instanceId}</div>
+                                                                <div className="text-xs font-semibold text-gray-800 truncate">
+                                                                    {getInstanceDisplayLabel(item)}
+                                                                </div>
                                                                 {item.lastVisitedAt && (
                                                                     <div className="text-[11px] text-gray-500">
                                                                         {new Date(item.lastVisitedAt).toLocaleString()}

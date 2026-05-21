@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import QualityControl from '../../controls/quality/page';
+import { deriveConfigSlugFromInstanceId } from '../../utils/instance-id';
 
 export default function QualityInstance() {
     const { id } = useParams();
@@ -11,7 +12,10 @@ export default function QualityInstance() {
         if (id) {
             setInstanceId(id);
             setTimestamp(new Date().toISOString());
-            document.title = `Quality Control`;
+            const configSlug = deriveConfigSlugFromInstanceId(id);
+            document.title = configSlug
+                ? `QA Workbench · ${configSlug}`
+                : 'Quality Control';
         }
     }, [id]);
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import CompletenessControl from '../../controls/completeness/page';
+import { deriveConfigSlugFromInstanceId } from '../../utils/instance-id';
 
 export default function CompletenessInstance() {
     const { id } = useParams();
@@ -11,7 +12,10 @@ export default function CompletenessInstance() {
         if (id) {
             setInstanceId(id);
             setTimestamp(new Date().toISOString());
-            document.title = `Completeness Control`;
+            const configSlug = deriveConfigSlugFromInstanceId(id);
+            document.title = configSlug
+                ? `Completeness · ${configSlug}`
+                : 'Completeness Control';
         }
     }, [id]);
 

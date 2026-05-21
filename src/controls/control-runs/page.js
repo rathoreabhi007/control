@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import ApiService from '../../services/api';
 import WebSocketService from '../../services/websocket';
 import ControlCard from '../../components/ControlRuns/ControlCard';
@@ -79,18 +79,18 @@ const ControlRunsPage = () => {
     const [runLogsHierarchy, setRunLogsHierarchy] = useState(null);
     const [historyCache, setHistoryCache] = useState(new Map());
 
-    const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapeRegex = useCallback((s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), []);
 
-    const tokenMatch = (haystack, token) => {
+    const tokenMatch = useCallback((haystack, token) => {
         const h = String(haystack || '').toLowerCase();
         const t = String(token || '').toLowerCase();
         if (!h || !t) return false;
         // Token boundary: start/end or separator (_ - space)
         const re = new RegExp(`(^|[\\s_\\-])${escapeRegex(t)}([\\s_\\-]|$)`, 'i');
         return re.test(h);
-    };
+    }, [escapeRegex]);
 
-    const pickBestToken = (haystack, candidates) => {
+    const pickBestToken = useCallback((haystack, candidates) => {
         const list = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
         if (list.length === 0) return '';
         // Prefer longest match to avoid overlaps (e.g., EMIR vs EMIRUK)
@@ -99,9 +99,9 @@ const ControlRunsPage = () => {
             if (tokenMatch(haystack, c)) return String(c);
         }
         return '';
-    };
+    }, [tokenMatch]);
 
-    const getControlHierarchyFields = (control) => {
+    const getControlHierarchyFields = useCallback((control) => {
         // Prefer explicit fields if backend provides them
         const explicitRt = (control?.reg_type ?? '').toString().trim();
         const explicitCt = (control?.control_type ?? '').toString().trim();
@@ -128,7 +128,7 @@ const ControlRunsPage = () => {
             control_type: ct,
             asset_type: at
         };
-    };
+    }, [runLogsHierarchy, pickBestToken]);
 
     useEffect(() => {
         // Initial load: Cache controls and history at once
@@ -545,7 +545,7 @@ const ControlRunsPage = () => {
             control_types: Array.from(controlTypes).sort(sortAlpha),
             asset_types: Array.from(assetTypes).sort(sortAlpha)
         };
-    }, [controls, runLogsHierarchy]);
+    }, [controls, runLogsHierarchy, getControlHierarchyFields]);
 
     const filteredControlTypes = useMemo(() => {
         if (!controlFilters.reg_type) return controlFilterHierarchy.control_types;
@@ -556,7 +556,7 @@ const ControlRunsPage = () => {
             if (ct) set.add(ct);
         });
         return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
-    }, [controlFilters.reg_type, controlFilterHierarchy.control_types, controls]);
+    }, [controlFilters.reg_type, controlFilterHierarchy.control_types, controls, getControlHierarchyFields]);
 
     const filteredAssetTypes = useMemo(() => {
         if (!controlFilters.reg_type && !controlFilters.control_type) return controlFilterHierarchy.asset_types;
@@ -568,7 +568,7 @@ const ControlRunsPage = () => {
             if (at) set.add(at);
         });
         return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
-    }, [controlFilters.reg_type, controlFilters.control_type, controlFilterHierarchy.asset_types, controls]);
+    }, [controlFilters.reg_type, controlFilters.control_type, controlFilterHierarchy.asset_types, controls, getControlHierarchyFields]);
 
     const controlsAfterDropdownFilters = useMemo(() => {
         const hasAny = !!(controlFilters.reg_type || controlFilters.control_type || controlFilters.asset_type);
@@ -580,7 +580,7 @@ const ControlRunsPage = () => {
             if (controlFilters.asset_type && at !== controlFilters.asset_type) return false;
             return true;
         });
-    }, [controlFilters.asset_type, controlFilters.control_type, controlFilters.reg_type, controls]);
+    }, [controlFilters.asset_type, controlFilters.control_type, controlFilters.reg_type, controls, getControlHierarchyFields]);
 
     // Filter controls based on regex search (always-on)
     const filteredControls = useMemo(() => {
