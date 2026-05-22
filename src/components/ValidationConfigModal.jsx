@@ -11,7 +11,6 @@ import {
     FaPlus,
     FaTrash,
     FaCheck,
-    FaExclamationTriangle,
     FaCheckCircle
 } from 'react-icons/fa';
 

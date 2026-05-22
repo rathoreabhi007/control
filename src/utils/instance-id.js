@@ -85,10 +85,16 @@ export function buildTempFilePath(basePrefix, instanceId) {
     return `${basePrefix}${subfolder}`;
 }
 
-/** Run params with tempFilePath aligned to the given instance id. */
-export function buildParamsForInstance(runParams, basePrefix, instanceId) {
-    const tempFilePath = basePrefix && instanceId
-        ? buildTempFilePath(basePrefix, instanceId)
+/** Actual filesystem subfolder name (matches buildTempFilePath suffix). */
+export function getTempFileSubfolderName(instanceId) {
+    if (!instanceId) return '';
+    return instanceId.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+/** Params with tempFilePath synced to the current instance id. */
+export function buildAppliedParams(runParams, tempFileBasePrefix, instanceId) {
+    const tempFilePath = tempFileBasePrefix && instanceId
+        ? buildTempFilePath(tempFileBasePrefix, instanceId)
         : (runParams?.tempFilePath ?? '');
     return { ...(runParams || {}), tempFilePath };
 }

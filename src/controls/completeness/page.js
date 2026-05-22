@@ -19,10 +19,10 @@ import WebSocketService from '../../services/websocket';
 import { useUser } from '../../contexts/UserContext';
 import { buildDependencyMap, buildDownstreamMap, getAllDownstreamNodes } from '../../utils/graph-utils';
 import {
-    buildParamsForInstance,
+    buildAppliedParams,
     buildTempFilePath,
     getInstanceDisplayLabel,
-    getTempFileSubfolderDisplay,
+    getTempFileSubfolderName,
     migrateInstanceStorage,
     replaceRecentInstance,
     resolveRenamedInstanceId,
@@ -960,13 +960,26 @@ export default function CompletenessControl({ instanceId }) {
             if (prev?.tempFilePath === path) return prev;
             return { ...(prev || {}), tempFilePath: path };
         });
-        setValidatedParams((prev) => {
-            if (!prev || prev.tempFilePath === path) return prev;
-            const next = { ...prev, tempFilePath: path };
-            safeLocalStorageSet(paramKey, JSON.stringify(next));
-            return next;
-        });
-    }, [tempFileBasePrefix, instanceId, paramKey]);
+    }, [tempFileBasePrefix, instanceId]);
+
+    // After URL rename, instanceId changes without remount — reload applied params for ETL runs
+    useEffect(() => {
+        if (!instanceId) return;
+        try {
+            const saved = localStorage.getItem(paramKey);
+            if (!saved) return;
+            const params = JSON.parse(saved);
+            const synced = buildAppliedParams(params, tempFileBasePrefix, instanceId);
+            setRunParams(synced);
+            const allValid = Object.values(synced).every((v) => v && String(v).trim() !== '');
+            if (allValid) {
+                setValidatedParams(synced);
+                setAreParamsApplied(true);
+            }
+        } catch {
+            // ignore storage errors
+        }
+    }, [instanceId, paramKey, tempFileBasePrefix]);
     const [selectedLogNode, setSelectedLogNode] = useState(null); // For log viewer
     const [processIds, setProcessIds] = useState(() => {
         const savedProcessIds = localStorage.getItem(processIdsKey);
@@ -981,15 +994,7 @@ export default function CompletenessControl({ instanceId }) {
     });
 
     const [invalidFields, setInvalidFields] = useState(new Set());
-    const [validatedParams, setValidatedParams] = useState(() => {
-        const saved = localStorage.getItem(paramKey);
-        if (!saved) return null;
-        try {
-            return JSON.parse(saved);
-        } catch {
-            return null;
-        }
-    });
+    const [validatedParams, setValidatedParams] = useState(null);
     const [selectedNodes] = useState(new Set());
 
     // Synchronous ref for node outputs to avoid async state issues
@@ -1287,17 +1292,15 @@ export default function CompletenessControl({ instanceId }) {
         }
     };
 
-    const validateParameters = useCallback((
-        targetInstanceId = instanceId,
-        { persist = true, storageKey = null } = {}
-    ) => {
-        const saveKey = storageKey || `${CONSTANTS.STORAGE_KEYS.PARAMS}_${targetInstanceId}`;
-        const paramsToSave = buildParamsForInstance(runParams, tempFileBasePrefix, targetInstanceId);
+    const validateParameters = useCallback(() => {
+        const forcedTempFilePath = tempFileBasePrefix && instanceId
+            ? buildTempFilePath(tempFileBasePrefix, instanceId)
+            : (runParams?.tempFilePath ?? '');
         const newInvalidFields = new Set();
         let hasErrors = false;
 
         // Check each parameter for empty or whitespace-only values
-        Object.entries(paramsToSave).forEach(([key, value]) => {
+        Object.entries({ ...(runParams || {}), tempFilePath: forcedTempFilePath }).forEach(([key, value]) => {
             if (!value || (typeof value === 'string' && value.trim() === '')) {
                 newInvalidFields.add(key);
                 hasErrors = true;
@@ -1312,17 +1315,18 @@ export default function CompletenessControl({ instanceId }) {
             message: hasErrors ? 'Please fill in all required fields' : 'Parameters are valid'
         });
 
-        if (!hasErrors && persist) {
+        if (!hasErrors) {
+            const paramsToSave = { ...(runParams || {}), tempFilePath: forcedTempFilePath };
             console.log('✅ All parameters are valid:', paramsToSave);
-            const success = safeLocalStorageSet(saveKey, JSON.stringify(paramsToSave));
+            const success = safeLocalStorageSet(paramKey, JSON.stringify(paramsToSave));
             if (!success) {
                 console.warn('Failed to save parameters to localStorage');
             }
             setValidatedParams(paramsToSave);
             setAreParamsApplied(true);
-        } else if (hasErrors) {
+        } else {
             try {
-                localStorage.removeItem(saveKey);
+                localStorage.removeItem(paramKey);
             } catch (error) {
                 console.warn('Failed to remove parameters from localStorage:', error);
             }
@@ -1330,43 +1334,29 @@ export default function CompletenessControl({ instanceId }) {
         }
 
         return !hasErrors;
-    }, [runParams, tempFileBasePrefix, instanceId]);
+    }, [runParams, paramKey, tempFileBasePrefix, instanceId]);
 
     const handleApplyParams = useCallback(() => {
-        const rename = resolveRenamedInstanceId(
-            instanceId,
-            runParams?.inputConfigFilePattern,
-            'completeness'
-        );
-        const targetInstanceId = rename?.newInstanceId || instanceId;
-        const storageKey = `${CONSTANTS.STORAGE_KEYS.PARAMS}_${targetInstanceId}`;
-
-        const isValid = validateParameters(targetInstanceId, { persist: false });
+        const isValid = validateParameters();
         if (!isValid) {
             setAreParamsApplied(false);
             return false;
         }
 
-        const paramsToSave = buildParamsForInstance(runParams, tempFileBasePrefix, targetInstanceId);
+        const rename = resolveRenamedInstanceId(
+            instanceId,
+            runParams?.inputConfigFilePattern,
+            'completeness'
+        );
+        const effectiveInstanceId = rename?.newInstanceId || instanceId;
 
         if (rename) {
             migrateInstanceStorage(instanceId, rename.newInstanceId);
-        }
-
-        safeLocalStorageSet(storageKey, JSON.stringify(paramsToSave));
-        if (rename && instanceId !== targetInstanceId) {
-            try {
-                localStorage.removeItem(`${CONSTANTS.STORAGE_KEYS.PARAMS}_${instanceId}`);
-            } catch {
-                // ignore storage errors
-            }
-        }
-
-        setValidatedParams(paramsToSave);
-        setRunParams(paramsToSave);
-        setAreParamsApplied(true);
-
-        if (rename) {
+            const applied = buildAppliedParams(runParams, tempFileBasePrefix, rename.newInstanceId);
+            const newParamsKey = `validatedParams_${rename.newInstanceId}`;
+            safeLocalStorageSet(newParamsKey, JSON.stringify(applied));
+            setRunParams(applied);
+            setValidatedParams(applied);
             const next = replaceRecentInstance(
                 recentInstancesKey,
                 instanceId,
@@ -1375,13 +1365,20 @@ export default function CompletenessControl({ instanceId }) {
             );
             setRecentInstances(next);
             navigate(`/instances/completeness/${rename.newInstanceId}`, { replace: true });
+        } else {
+            const applied = buildAppliedParams(runParams, tempFileBasePrefix, effectiveInstanceId);
+            safeLocalStorageSet(paramKey, JSON.stringify(applied));
+            setRunParams(applied);
+            setValidatedParams(applied);
         }
 
+        setAreParamsApplied(true);
         return true;
     }, [
         validateParameters,
         instanceId,
         runParams,
+        paramKey,
         tempFileBasePrefix,
         recentInstancesKey,
         navigate,
@@ -1442,11 +1439,11 @@ export default function CompletenessControl({ instanceId }) {
                                 <input
                                     type="text"
                                     readOnly
-                                    value={instanceId ? getTempFileSubfolderDisplay(instanceId) : ''}
+                                    value={instanceId ? getTempFileSubfolderName(instanceId) : ''}
                                     className="flex-1 px-3 py-2 text-xs text-gray-800 bg-gray-100 cursor-default focus:outline-none"
                                     placeholder="Set when instance is named"
                                     disabled={!tempFileBasePrefix || !instanceId}
-                                    title={value || buildTempFilePath(tempFileBasePrefix, instanceId)}
+                                    title={buildTempFilePath(tempFileBasePrefix, instanceId)}
                                 />
                             </div>
                         ) : (
@@ -1827,9 +1824,7 @@ export default function CompletenessControl({ instanceId }) {
             // Prepare input parameters with proper structure for enhanced ETL
             const input = {
                 nodeId: nodeId,
-                parameters: validatedParams
-                    ? buildParamsForInstance(validatedParams, tempFileBasePrefix, instanceId)
-                    : validatedParams,
+                parameters: validatedParams,
                 previousOutputs: Object.keys(previousOutputs).length > 0 ? previousOutputs : null,
                 customParams: {
                     step_type: nodeId,
@@ -2165,7 +2160,7 @@ export default function CompletenessControl({ instanceId }) {
             ));
             console.log(`❌ Set ${nodeId} status to 'failed' due to execution error`);
         }
-    }, [nodes, setNodes, updateNodeStatus, updateNodeOutput, dependencyMap, nodeOutputs, validatedParams, tempFileBasePrefix, instanceId]);
+    }, [nodes, setNodes, updateNodeStatus, updateNodeOutput, dependencyMap, nodeOutputs, validatedParams]);
 
     // Chain-dependency aware node runner with enhanced failed node handling
     const runNode = useCallback(async (nodeId) => {

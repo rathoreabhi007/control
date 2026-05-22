@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import HSBCLogo from '../../components/HSBCLogo';
 import { ApiService } from '../../services/api';
 import {
@@ -77,24 +77,16 @@ export default function FileMonitoringDashboard({ fileType = 'input' }) {
 
     const arrivalLabel = fileType === 'input' ? 'Arrival Time' : 'Production Time';
 
-    useEffect(() => {
-        loadHierarchy();
-    }, [fileType]);
-
-    useEffect(() => {
-        loadFileStatuses();
-    }, [filters.monitoring_date, fileType]);
-
-    const loadHierarchy = async () => {
+    const loadHierarchy = useCallback(async () => {
         try {
             const data = await ApiService.getFileMonitoringHierarchy(fileType);
             setHierarchy(data);
         } catch (err) {
             // hierarchy load failure is non-fatal
         }
-    };
+    }, [fileType]);
 
-    const loadFileStatuses = async () => {
+    const loadFileStatuses = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
@@ -108,7 +100,15 @@ export default function FileMonitoringDashboard({ fileType = 'input' }) {
         } finally {
             setLoading(false);
         }
-    };
+    }, [fileType, filters.monitoring_date]);
+
+    useEffect(() => {
+        loadHierarchy();
+    }, [loadHierarchy]);
+
+    useEffect(() => {
+        loadFileStatuses();
+    }, [loadFileStatuses]);
 
     const handleFilterChange = (key, value) => {
         setFilters(prev => {
@@ -187,7 +187,7 @@ export default function FileMonitoringDashboard({ fileType = 'input' }) {
         )].sort();
     }, [filters.regulation, filters.asset_class, filters.sub_control_name, fileStatuses, hierarchy.control_names]);
 
-    const applyClientFilters = (data) => {
+    const applyClientFilters = useCallback((data) => {
         return data.filter(f => {
             if (filters.regulation && f.regulation !== filters.regulation) return false;
             if (filters.asset_class && f.asset_class !== filters.asset_class) return false;
@@ -207,7 +207,7 @@ export default function FileMonitoringDashboard({ fileType = 'input' }) {
 
             return true;
         });
-    };
+    }, [filters, columnFilters]);
 
     const sortedAndPaginatedStatuses = useMemo(() => {
         const filtered = applyClientFilters(fileStatuses);
@@ -220,9 +220,9 @@ export default function FileMonitoringDashboard({ fileType = 'input' }) {
         });
         const startIndex = (currentPage - 1) * itemsPerPage;
         return sorted.slice(startIndex, startIndex + itemsPerPage);
-    }, [fileStatuses, filters, columnFilters, sortColumn, sortDirection, currentPage, itemsPerPage]);
+    }, [fileStatuses, applyClientFilters, sortColumn, sortDirection, currentPage, itemsPerPage]);
 
-    const filteredCount = useMemo(() => applyClientFilters(fileStatuses).length, [fileStatuses, filters, columnFilters]);
+    const filteredCount = useMemo(() => applyClientFilters(fileStatuses).length, [fileStatuses, applyClientFilters]);
     const totalPages = Math.ceil(filteredCount / itemsPerPage);
 
     const handleSort = (column) => {
@@ -241,7 +241,7 @@ export default function FileMonitoringDashboard({ fileType = 'input' }) {
         const notReceived = filtered.filter(f => f.status === 'not_received').length;
         const receiptRate = total > 0 ? ((received / total) * 100).toFixed(1) : 0;
         return { total, received, notReceived, receiptRate };
-    }, [fileStatuses, filters, columnFilters]);
+    }, [fileStatuses, applyClientFilters]);
 
     const getStatusColor = (status) => {
         switch (status) {
@@ -297,7 +297,7 @@ export default function FileMonitoringDashboard({ fileType = 'input' }) {
                 total: counts.Received + counts['Not Received']
             }))
             .sort((a, b) => b.total - a.total);
-    }, [fileStatuses, chartCategory, filters, columnFilters]);
+    }, [fileStatuses, chartCategory, applyClientFilters]);
 
     const getCategoryLabel = (cat) => {
         const labels = {
