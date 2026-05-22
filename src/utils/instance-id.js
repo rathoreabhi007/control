@@ -85,6 +85,14 @@ export function buildTempFilePath(basePrefix, instanceId) {
     return `${basePrefix}${subfolder}`;
 }
 
+/** Run params with tempFilePath aligned to the given instance id. */
+export function buildParamsForInstance(runParams, basePrefix, instanceId) {
+    const tempFilePath = basePrefix && instanceId
+        ? buildTempFilePath(basePrefix, instanceId)
+        : (runParams?.tempFilePath ?? '');
+    return { ...(runParams || {}), tempFilePath };
+}
+
 /** Display label for the fixed temp subfolder (matches recent-instance label). */
 export function getTempFileSubfolderDisplay(instanceId) {
     return getInstanceDisplayLabel({ instanceId });
